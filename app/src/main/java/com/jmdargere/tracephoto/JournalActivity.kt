@@ -24,7 +24,6 @@ class JournalActivity : Activity() {
     private var reel = false
     private var nbPhotos = 0
     private lateinit var titre: TextView
-    private lateinit var bMode: Button
     private val df = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     /** Distance en ligne droite entre photos successives (carnet « mes photos »). */
@@ -47,7 +46,6 @@ class JournalActivity : Activity() {
     }
     private fun majEntete() {
         titre.text = "📔 " + T.f("j_titre", jours.size, nbPhotos)
-        bMode.text = if (reel) "🥾 Mode : mon parcours réel (toucher pour changer)" else "📷 Mode : mes photos (toucher pour changer)"
     }
     private var jours: List<Jour> = emptyList()
     private var filtre: List<Jour> = emptyList()
@@ -63,7 +61,7 @@ class JournalActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        reel = sp.getBoolean("j_reel", false)
+        reel = false
         calculer()
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#ECEFF1")) }
@@ -77,8 +75,6 @@ class JournalActivity : Activity() {
         ligne.addView(bt("📤 " + T.t("j_part"), "#1565C0") { partager() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         ligne.addView(bt("🗺 " + T.t("j_gpx"), "#00838F") { gpxVoyage() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         ligne.addView(bt("💾 " + T.t("j_sauv"), "#6A1B9A") { sauvegarder() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
-        bMode = bt("", "#37474F") { reel = !reel; sp.edit().putBoolean("j_reel", reel).apply(); calculer(); majEntete(); dessiner() }
-        root.addView(bMode, LinearLayout.LayoutParams(-1, dp(50)).apply { setMargins(dp(9), dp(4), dp(9), dp(4)) })
         root.addView(ligne)
         val sv = ScrollView(this); liste = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(20)) }
         sv.addView(liste); root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -107,11 +103,8 @@ class JournalActivity : Activity() {
 
     private fun gpxVoyage() {
         Thread {
-            val ent = Journal.vivantes(this).filter { it.jpeg && it.lat != null && it.lon != null }
-            val wp = ent.map { Wp(it.nom, it.lat!!, it.lon!!, it.t, it.lieu) }
-            // carnet « photos » : le parcours est recréé en reliant les photos ; carnet « réel » : la vraie trace GPS
-            val pts = if (reel) Trace.lireTout(this) else ent.sortedBy { it.t }.map { Pt(it.t, it.lat!!, it.lon!!, null) }
-            val u = Trace.exporterVisu(this, pts, wp)
+            val ent = Journal.vivantes(this).filter { it.jpeg && it.lat != null && it.lon != null && it.t > 0 }
+            val u = Trace.exporterCarnet(this, ent.map { Wp(it.nom, it.lat!!, it.lon!!, it.t, it.lieu) })
             runOnUiThread {
                 if (u == null) { Toast.makeText(this, T.t("pas_carte"), Toast.LENGTH_LONG).show(); return@runOnUiThread }
                 try { startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/gpx+xml").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), T.t("carte_info"))) }

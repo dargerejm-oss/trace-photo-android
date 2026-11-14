@@ -68,14 +68,8 @@ object Trace {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;")
 
     /** GPX de visualisation : la trace + un repère par photo géolocalisée. Retourne son Uri (Documents/TRACE_PHOTO). */
-    fun exporterVisu(c: Context, pts: List<Pt>, wpts: List<Wp>): android.net.Uri? {
+    private fun ecrireGpx(c: Context, contenu: String): android.net.Uri? {
         if (Build.VERSION.SDK_INT < 29) return null
-        val fmt = iso.get()!!
-        val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"TRACE PHOTO par JM.DARGERE\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
-        for (w in wpts + marques(c)) sb.append("<wpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time><name>%s</name><desc>%s</desc></wpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t)), esc(w.nom), esc(w.desc)))
-        sb.append("<trk><name>Trace</name><trkseg>\n")
-        for (p in pts) sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, p.lat, p.lon, fmt.format(Date(p.t))))
-        sb.append("</trkseg></trk></gpx>\n")
         val n = "photos_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".gpx"
         return try {
             // supprime les anciennes cartes photos_*.gpx (copies jetables) pour ne garder que la nouvelle
@@ -86,9 +80,37 @@ object Trace {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/TRACE_PHOTO")
             }
             val u = c.contentResolver.insert(MediaStore.Files.getContentUri("external"), v)
-            u?.let { c.contentResolver.openOutputStream(it)?.use { o -> o.write(sb.toString().toByteArray()) } }
+            u?.let { c.contentResolver.openOutputStream(it)?.use { o -> o.write(contenu.toByteArray()) } }
             u
         } catch (_: Exception) { null }
+    }
+
+    /** Carte d'un import : trace réelle + points des photos importées. */
+    fun exporterVisu(c: Context, pts: List<Pt>, wpts: List<Wp>): android.net.Uri? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        val fmt = iso.get()!!
+        val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"TRACE PHOTO par JM.DARGERE\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        for (w in wpts + marques(c)) sb.append("<wpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time><name>%s</name><desc>%s</desc></wpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t)), esc(w.nom), esc(w.desc)))
+        sb.append("<trk><name>Trace</name><trkseg>\n")
+        for (p in pts) sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, p.lat, p.lon, fmt.format(Date(p.t))))
+        sb.append("</trkseg></trk></gpx>\n")
+        return ecrireGpx(c, sb.toString())
+    }
+
+    /** Carnet de voyage : un point par photo restante (nom = jour + heure), et un parcours par jour reliant les photos. */
+    fun exporterCarnet(c: Context, photos: List<Wp>): android.net.Uri? {
+        val fmt = iso.get()!!
+        val jour = SimpleDateFormat("yyyy-MM-dd", Locale.US); val heure = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.US)
+        val l = photos.sortedBy { it.t }
+        val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"TRACE PHOTO par JM.DARGERE\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        for (w in l) sb.append("<wpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time><name>%s</name><desc>%s</desc></wpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t)), esc(heure.format(Date(w.t))), esc((w.desc + "\n" + w.nom).trim())))
+        for ((j, v) in l.groupBy { jour.format(Date(it.t)) }) {
+            sb.append("<trk><name>%s</name><trkseg>\n".format(esc(j)))
+            for (w in v) sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t))))
+            sb.append("</trkseg></trk>\n")
+        }
+        sb.append("</gpx>\n")
+        return ecrireGpx(c, sb.toString())
     }
 
     fun lireTout(c: Context): List<Pt> {
