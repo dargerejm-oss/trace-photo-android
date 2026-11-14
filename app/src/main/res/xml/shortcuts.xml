@@ -3,4 +3,7 @@
     <shortcut android:shortcutId="trace" android:enabled="true" android:icon="@drawable/ic_fg" android:shortcutShortLabel="@string/sc_trace" android:shortcutLongLabel="@string/sc_trace">
         <intent android:action="com.jmdargere.tracephoto.DEMARRER" android:targetPackage="com.jmdargere.tracephoto" android:targetClass="com.jmdargere.tracephoto.MainActivity" />
     </shortcut>
+    <shortcut android:shortcutId="marque" android:enabled="true" android:icon="@drawable/ic_fg" android:shortcutShortLabel="@string/sc_marque" android:shortcutLongLabel="@string/sc_marque">
+        <intent android:action="com.jmdargere.tracephoto.MARQUER" android:targetPackage="com.jmdargere.tracephoto" android:targetClass="com.jmdargere.tracephoto.MainActivity" />
+    </shortcut>
 </shortcuts>

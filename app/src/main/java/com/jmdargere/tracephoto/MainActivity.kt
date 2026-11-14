@@ -93,6 +93,8 @@ class MainActivity : Activity() {
         btnTrace = gros(T.t("go"), Color.parseColor("#2E7D32")).also { it.setOnClickListener { basculeTrace() } }
         root.addView(btnTrace)
 
+        root.addView(Button(this).apply { text = T.t("b_marque"); isAllCaps = false; textSize = 16f; setTextColor(Color.WHITE); background = fond(Color.parseColor("#F9A825")); setOnClickListener { marquerIci() } }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(8) })
+        root.addView(Button(this).apply { text = T.t("b_histo"); isAllCaps = false; setOnClickListener { montrerHisto() } })
         carte = txt("", 14f).apply { setPadding(dp(4), dp(18), dp(4), dp(0)) }
         root.addView(carte)
         btnGeo = gros(T.t("geo"), Color.parseColor("#1565C0")).also { it.setOnClickListener { lancer(false) } }
@@ -236,6 +238,7 @@ class MainActivity : Activity() {
     // ---- trace ----
     override fun onNewIntent(i: Intent?) {
         super.onNewIntent(i)
+        if (i?.action == "com.jmdargere.tracephoto.MARQUER") { i.action = null; h.postDelayed({ marquerIci() }, 400) }
         if (i?.action == "com.jmdargere.tracephoto.DEMARRER") { i.action = null; if (!TraceService.actif) h.postDelayed({ basculeTrace() }, 400) }
     }
     private fun basculeTrace() {
@@ -343,6 +346,24 @@ class MainActivity : Activity() {
                     if (i != null) startActivityForResult(i, RC_AUTH) else Toast.makeText(this, T.t("sup_pas_verrou"), Toast.LENGTH_LONG).show()
                 }
             }.setNegativeButton(T.t("sup_non"), null).setCancelable(false).show()
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun marquerIci() {
+        var l: android.location.Location? = TraceService.dernierLoc
+        if (l == null || System.currentTimeMillis() - l.time > 120_000L) try { val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            val g = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            if (g != null && (l == null || g.time > l.time)) l = g } catch (_: Exception) {}
+        if (l == null) { Toast.makeText(this, T.t("marque_non"), Toast.LENGTH_LONG).show(); return }
+        Trace.marquer(this, l.latitude, l.longitude, System.currentTimeMillis())
+        try { (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE)) } catch (_: Exception) {}
+        Toast.makeText(this, T.f("marque_ok", l.latitude, l.longitude), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun montrerHisto() {
+        val tx = Trace.lireEvt(this).ifBlank { T.t("histo_vide") }
+        val tv = TextView(this).apply { text = tx; textSize = 13f; typeface = Typeface.MONOSPACE; setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        android.app.AlertDialog.Builder(this).setTitle(T.t("b_histo")).setView(ScrollView(this).apply { addView(tv) }).setPositiveButton("OK", null).show()
     }
 
     private fun demanderToujours(force: Boolean = false) {

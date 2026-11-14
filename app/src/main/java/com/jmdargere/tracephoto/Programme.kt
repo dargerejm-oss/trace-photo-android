@@ -11,6 +11,7 @@ import java.util.Calendar
 class Programme : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         val sp = c.getSharedPreferences("trace", Context.MODE_PRIVATE)
+        if (i.action == "REPRISE") { if (sp.getBoolean("actif", false) && !TraceService.actif) try { c.startForegroundService(Intent(c, TraceService::class.java)) } catch (_: Exception) { Trace.evt(c, "reprise refusée par Android") }; return }
         if (!sp.getBoolean("prog", false)) return
         when (i.action) {
             "START" -> if (!TraceService.actif) try { c.startForegroundService(Intent(c, TraceService::class.java).putExtra("prog", true)) } catch (_: Exception) {}

@@ -78,6 +78,32 @@ class ViewerActivity : Activity() {
         contentResolver.openFileDescriptor(Uri.parse(e.uri), "r")!!.use { ExifInterface(it.fileDescriptor).latLong }
     } catch (_: Exception) { null }
 
+    private fun dms(v: Double, p: Char, n: Char): String { val a = Math.abs(v); val d = a.toInt(); val m = ((a - d) * 60).toInt(); val s = ((a - d) * 60 - m) * 60
+        return String.format(Locale.US, "%d°%02d'%04.1f\"%c", d, m, s, if (v >= 0) p else n) }
+
+    /** Fiche de lieu : lieu, pays, coordonnées, altitude, heure, appareil, autres photos du même lieu. */
+    private fun fiche(e: Entree) {
+        val lieu = e.lieu.removePrefix("≈ ").trim()
+        val approx = e.lieu.startsWith("≈")
+        var alt = ""; var cam = ""; var heure = ""
+        try { contentResolver.openFileDescriptor(Uri.parse(e.uri), "r")!!.use { p -> val x = ExifInterface(p.fileDescriptor)
+            val a = x.getAltitude(Double.NaN); if (!a.isNaN()) alt = String.format(Locale.US, "⛰ %.0f m\n", a)
+            cam = listOfNotNull(x.getAttribute(ExifInterface.TAG_MAKE), x.getAttribute(ExifInterface.TAG_MODEL)).joinToString(" ").trim()
+            heure = x.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: "" } } catch (_: Exception) {}
+        val memes = if (lieu.isNotEmpty()) toutes.count { it.lieu.removePrefix("≈ ").trim() == lieu } else 0
+        val sb = StringBuilder()
+        sb.append(if (lieu.isNotEmpty()) "🌍 $lieu\n" else "🌍 —\n")
+        if (e.lat != null && e.lon != null) { sb.append("📍 ${dms(e.lat, 'N', 'S')}  ${dms(e.lon, 'E', 'W')}\n"); sb.append(String.format(Locale.US, "   (%.5f, %.5f)\n", e.lat, e.lon)) }
+        if (approx) sb.append("≈ position estimée d'après une photo voisine\n")
+        sb.append(alt); if (heure.isNotEmpty()) sb.append("🕒 $heure\n"); if (cam.isNotEmpty()) sb.append("📷 $cam\n")
+        if (memes > 0) sb.append("🖼 $memes photo(s) dans ce lieu\n")
+        val ville = lieu.substringBefore(",").trim()
+        val ab = android.app.AlertDialog.Builder(this).setTitle("ℹ " + e.nom).setMessage(sb.toString()).setPositiveButton("OK", null)
+        if (ville.isNotEmpty()) ab.setNeutralButton("Wikipédia") { _, _ -> try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://fr.wikipedia.org/wiki/Special:Search?search=" + Uri.encode(ville)))) } catch (_: Exception) {} }
+        if (e.lat != null && e.lon != null) ab.setNegativeButton("Copier") { _, _ -> val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager; cm.setPrimaryClip(android.content.ClipData.newPlainText("fiche", sb.toString())); Toast.makeText(this, "✔", Toast.LENGTH_SHORT).show() }
+        ab.show()
+    }
+
     private fun detail(start: Int) {
         var i = start
         val d = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
@@ -97,10 +123,11 @@ class ViewerActivity : Activity() {
             return (if (l.isNotEmpty()) "📍 $l\n" else "") + (if (e.lat != null) String.format(Locale.US, "https://maps.google.com/?q=%f,%f", e.lat, e.lon) + "\n" else "") + tag }
         val bPart = btn("📤", "#1565C0") { try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("image/jpeg").putExtra(Intent.EXTRA_STREAM, Uri.parse(liste[i].uri)).putExtra(Intent.EXTRA_TEXT, texteP(liste[i])).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), T.t("j_part"))) } catch (_: Exception) {} }
         val bTag = btn("#", "#6A1B9A") { val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager; cm.setPrimaryClip(android.content.ClipData.newPlainText("lieu", texteP(liste[i]))); Toast.makeText(this, "✔", Toast.LENGTH_SHORT).show() }
+        val bFiche = btn("ℹ", "#EF6C00") { fiche(liste[i]) }
         val bFerme = btn("✕", "#B71C1C") { d.dismiss() }
         val ligne = LinearLayout(d.context).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(8), dp(4), dp(8), dp(16)) }
         ligne.addView(bPrec, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bCarte, LinearLayout.LayoutParams(0, dp(54), 2.2f))
-        ligne.addView(bPart, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bTag, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bSuiv, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bFerme, LinearLayout.LayoutParams(0, dp(54), 1f))
+        ligne.addView(bFiche, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bPart, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bTag, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bSuiv, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bFerme, LinearLayout.LayoutParams(0, dp(54), 1f))
         col.addView(img, LinearLayout.LayoutParams(-1, 0, 1f)); col.addView(txt); col.addView(ligne)
         maj = {
             val e = liste[i]

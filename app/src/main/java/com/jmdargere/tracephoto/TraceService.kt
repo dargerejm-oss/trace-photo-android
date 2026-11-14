@@ -23,6 +23,7 @@ class TraceService : Service() {
         @Volatile var actif = false
         @Volatile var points = 0
         @Volatile var dernierFix = 0L
+        @Volatile var dernierLoc: Location? = null
         const val INTERVALLE = 15_000L
     }
 
@@ -34,6 +35,13 @@ class TraceService : Service() {
     private var immobile = 0
     private var dernierTz = Int.MIN_VALUE
     private var lent = false
+    private val hd = android.os.Handler(android.os.Looper.getMainLooper())
+    private val veille = object : Runnable { override fun run() {
+        if (!actif) return
+        val age = System.currentTimeMillis() - dernierFix
+        if (dernierFix > 0 && age > 5 * 60_000L && !lent || dernierFix == 0L && age > 0 && System.currentTimeMillis() - debut > 4 * 60_000L) { Trace.evt(this@TraceService, "relance du GPS (aucun point depuis ${age / 60000} min)"); relancer(if (lent) 60_000L else INTERVALLE); debut = System.currentTimeMillis() }
+        hd.postDelayed(this, 120_000L) } }
+    private var debut = 0L
     private var parProg = false
     private var eco = true
 
@@ -42,7 +50,7 @@ class TraceService : Service() {
         if (parProg && !Programme.dedans(this)) { arreter(); return }
         if (l.hasAccuracy() && l.accuracy > 150f) return
         Trace.ajouter(f, l.latitude, l.longitude, if (l.hasAltitude()) l.altitude else null, l.time)
-        points++; dernierFix = System.currentTimeMillis()
+        points++; dernierFix = System.currentTimeMillis(); dernierLoc = l
         try { val off = java.util.TimeZone.getDefault().getOffset(l.time) / 1000
             val tz = java.io.File(filesDir, "tz.tsv")
             if (off != dernierTz) { dernierTz = off; tz.appendText("${l.time}\t$off\n") } } catch (_: Exception) {}
@@ -74,6 +82,8 @@ class TraceService : Service() {
             if (lm!!.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) lm!!.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, INTERVALLE * 2, 0f, ecoute)
         } catch (_: SecurityException) { arreter(); return START_NOT_STICKY }
         points = Trace.lireFichierCompte(fichier!!); actif = true
+        debut = System.currentTimeMillis(); hd.removeCallbacks(veille); hd.postDelayed(veille, 120_000L)
+        Trace.evt(this, if (repris != null) "reprise après arrêt du système (${points} points déjà notés)" else if (parProg) "démarrage programmé" else "démarrage")
         return START_STICKY
     }
 
@@ -83,6 +93,7 @@ class TraceService : Service() {
     }
 
     private fun arreter() {
+        Trace.evt(this, "arrêt (${points} points)"); hd.removeCallbacks(veille)
         try { lm?.removeUpdates(ecoute) } catch (_: Exception) {}
         fichier?.let { Trace.fermer(it); Trace.exporter(this, it) }
         try { wl?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
@@ -100,6 +111,17 @@ class TraceService : Service() {
         if (Build.VERSION.SDK_INT >= 29) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) else startForeground(1, n)
     }
 
-    override fun onDestroy() { try { lm?.removeUpdates(ecoute) } catch (_: Exception) {}; super.onDestroy() }
+    override fun onDestroy() {
+        try { lm?.removeUpdates(ecoute) } catch (_: Exception) {}
+        hd.removeCallbacks(veille)
+        if (getSharedPreferences("trace", MODE_PRIVATE).getBoolean("actif", false)) {
+            // arrêté par le système sans que tu l'aies demandé : on se fait rappeler dans 30 s
+            Trace.evt(this, "⚠ coupée par Android : reprise dans 30 s")
+            try { val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+                am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 30_000L, PendingIntent.getBroadcast(this, 23, Intent(this, Programme::class.java).setAction("REPRISE"), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)) } catch (_: Exception) {}
+        }
+        actif = false
+        super.onDestroy()
+    }
     override fun onBind(i: Intent?): IBinder? = null
 }

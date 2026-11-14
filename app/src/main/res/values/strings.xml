@@ -2,4 +2,5 @@
 <resources>
     <string name="sc_trace">Démarrer la trace</string>
     <string name="tile_label">Trace photo</string>
+    <string name="sc_marque">Marquer ici</string>
 </resources>

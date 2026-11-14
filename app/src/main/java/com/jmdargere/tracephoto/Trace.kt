@@ -19,6 +19,17 @@ object Trace {
     }
     private val rx = Regex("""<trkpt lat="([-0-9.]+)" lon="([-0-9.]+)">(?:<ele>([-0-9.]+)</ele>)?<time>([^<]+)</time>""")
 
+    /** Historique des événements de la trace (démarrage, arrêt, coupure Android, reprise). */
+    fun evt(c: Context, msg: String) {
+        try { val f = File(c.filesDir, "evenements.log"); if (f.exists() && f.length() > 60_000) f.writeText(f.readLines().takeLast(200).joinToString("\n") + "\n")
+            f.appendText(SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date()) + "  " + msg + "\n") } catch (_: Exception) {}
+    }
+    fun lireEvt(c: Context): String = try { File(c.filesDir, "evenements.log").readLines().takeLast(60).reversed().joinToString("\n") } catch (_: Exception) { "" }
+
+    /** Marques manuelles « 📍 ici » (position du téléphone au moment de l'appui). */
+    fun marquer(c: Context, lat: Double, lon: Double, t: Long) { try { File(c.filesDir, "marques.tsv").appendText("$t\t$lat\t$lon\n") } catch (_: Exception) {} }
+    fun marques(c: Context): List<Wp> = try { File(c.filesDir, "marques.tsv").readLines().mapNotNull { l -> val p = l.split('\t'); if (p.size == 3) Wp("📍 " + SimpleDateFormat("dd/MM HH:mm", Locale.US).format(Date(p[0].toLong())), p[1].toDouble(), p[2].toDouble(), p[0].toLong(), "Marque manuelle") else null } } catch (_: Exception) { emptyList() }
+
     fun dir(c: Context): File = File(c.filesDir, "traces").also { it.mkdirs() }
 
     fun nouveauFichier(c: Context): File {
@@ -61,7 +72,7 @@ object Trace {
         if (Build.VERSION.SDK_INT < 29) return null
         val fmt = iso.get()!!
         val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"TRACE PHOTO par JM.DARGERE\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
-        for (w in wpts) sb.append("<wpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time><name>%s</name><desc>%s</desc></wpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t)), esc(w.nom), esc(w.desc)))
+        for (w in wpts + marques(c)) sb.append("<wpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time><name>%s</name><desc>%s</desc></wpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t)), esc(w.nom), esc(w.desc)))
         sb.append("<trk><name>Trace</name><trkseg>\n")
         for (p in pts) sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, p.lat, p.lon, fmt.format(Date(p.t))))
         sb.append("</trkseg></trk></gpx>\n")
