@@ -17,8 +17,37 @@ import java.util.*
 
 /** Journal de voyage : un bloc par jour (photos, lieux, distance), recherche, partage, GPX du voyage, sauvegarde du journal. */
 class JournalActivity : Activity() {
-    private class Jour(val cle: String, val photos: List<Entree>, val lieux: List<String>, val km: Double) {
-        fun texte() = "📅 $cle\n📷 ${photos.size}   🥾 %.1f km\n🌍 ${if (lieux.isEmpty()) "—" else lieux.joinToString(" · ")}".format(Locale.US, km)
+    private class Jour(val cle: String, val photos: List<Entree>, val lieux: List<String>, val km: Double, val approx: Boolean) {
+        fun texte() = "📅 $cle\n📷 ${photos.size}   🥾 ${if (approx) "≈ " else ""}%.1f km\n🌍 ${if (lieux.isEmpty()) "—" else lieux.joinToString(" · ")}".format(Locale.US, km)
+    }
+    private val sp by lazy { getSharedPreferences("trace", MODE_PRIVATE) }
+    private var reel = false
+    private var nbPhotos = 0
+    private lateinit var titre: TextView
+    private lateinit var bMode: Button
+    private val df = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
+    /** Distance en ligne droite entre photos successives (carnet « mes photos »). */
+    private fun kmPhotos(v: List<Entree>): Double {
+        val l = v.filter { it.lat != null && it.lon != null }.sortedBy { it.t }
+        var s = 0.0
+        for (i in 1 until l.size) { val r = FloatArray(1); android.location.Location.distanceBetween(l[i - 1].lat!!, l[i - 1].lon!!, l[i].lat!!, l[i].lon!!, r); s += r[0] }
+        return s / 1000.0
+    }
+
+    private fun calculer() {
+        val ent = Journal.vivantes(this).filter { it.jpeg && it.t > 0 }
+        nbPhotos = ent.size
+        val parJ = ent.groupBy { df.format(Date(it.t)) }
+        val ptsJ = if (reel) Trace.lireTout(this).groupBy { df.format(Date(it.t)) } else emptyMap()
+        val cles = (if (reel) parJ.keys + ptsJ.keys else parJ.keys).toSortedSet(compareByDescending { it })
+        jours = cles.map { k -> val v = parJ[k] ?: emptyList()
+            Jour(k, v, v.map { it.lieu.removePrefix("≈ ").trim() }.filter { it.isNotEmpty() }.distinct(), if (reel) km(ptsJ[k] ?: emptyList()) else kmPhotos(v), !reel) }
+        filtre = jours
+    }
+    private fun majEntete() {
+        titre.text = "📔 " + T.f("j_titre", jours.size, nbPhotos)
+        bMode.text = if (reel) "🥾 Mode : mon parcours réel (toucher pour changer)" else "📷 Mode : mes photos (toucher pour changer)"
     }
     private var jours: List<Jour> = emptyList()
     private var filtre: List<Jour> = emptyList()
@@ -34,16 +63,11 @@ class JournalActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        val df = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val ent = Journal.vivantes(this).filter { it.jpeg && it.t > 0 }
-        val pts = Trace.lireTout(this)
-        val parJ = ent.groupBy { df.format(Date(it.t)) }.toSortedMap(compareByDescending { it })
-        val ptsJ = pts.groupBy { df.format(Date(it.t)) }
-        jours = parJ.map { (k, v) -> Jour(k, v, v.map { it.lieu.removePrefix("≈ ").trim() }.filter { it.isNotEmpty() }.distinct(), km(ptsJ[k] ?: emptyList())) }
-        filtre = jours
+        reel = sp.getBoolean("j_reel", false)
+        calculer()
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#ECEFF1")) }
-        root.addView(TextView(this).apply { text = "📔 " + T.f("j_titre", jours.size, ent.size); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
+        titre = TextView(this); root.addView(titre.apply { textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#263238")); setPadding(dp(14), dp(34), dp(14), dp(12)) })
         val rech = EditText(this).apply { hint = "🔍 " + T.t("j_rech"); setSingleLine(); setPadding(dp(14), dp(10), dp(14), dp(10)) }
         root.addView(rech)
@@ -53,6 +77,8 @@ class JournalActivity : Activity() {
         ligne.addView(bt("📤 " + T.t("j_part"), "#1565C0") { partager() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         ligne.addView(bt("🗺 " + T.t("j_gpx"), "#00838F") { gpxVoyage() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         ligne.addView(bt("💾 " + T.t("j_sauv"), "#6A1B9A") { sauvegarder() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
+        bMode = bt("", "#37474F") { reel = !reel; sp.edit().putBoolean("j_reel", reel).apply(); calculer(); majEntete(); dessiner() }
+        root.addView(bMode, LinearLayout.LayoutParams(-1, dp(50)).apply { setMargins(dp(9), dp(4), dp(9), dp(4)) })
         root.addView(ligne)
         val sv = ScrollView(this); liste = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(20)) }
         sv.addView(liste); root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -63,7 +89,7 @@ class JournalActivity : Activity() {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
-        dessiner()
+        majEntete(); dessiner()
     }
 
     private fun dessiner() {
@@ -81,9 +107,11 @@ class JournalActivity : Activity() {
 
     private fun gpxVoyage() {
         Thread {
-            val wp = ArrayList<Wp>()
-            for (e in Journal.vivantes(this)) if (e.jpeg && e.lat != null && e.lon != null) wp.add(Wp(e.nom, e.lat, e.lon, e.t, e.lieu))
-            val u = Trace.exporterVisu(this, Trace.lireTout(this), wp)
+            val ent = Journal.vivantes(this).filter { it.jpeg && it.lat != null && it.lon != null }
+            val wp = ent.map { Wp(it.nom, it.lat!!, it.lon!!, it.t, it.lieu) }
+            // carnet « photos » : le parcours est recréé en reliant les photos ; carnet « réel » : la vraie trace GPS
+            val pts = if (reel) Trace.lireTout(this) else ent.sortedBy { it.t }.map { Pt(it.t, it.lat!!, it.lon!!, null) }
+            val u = Trace.exporterVisu(this, pts, wp)
             runOnUiThread {
                 if (u == null) { Toast.makeText(this, T.t("pas_carte"), Toast.LENGTH_LONG).show(); return@runOnUiThread }
                 try { startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/gpx+xml").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), T.t("carte_info"))) }

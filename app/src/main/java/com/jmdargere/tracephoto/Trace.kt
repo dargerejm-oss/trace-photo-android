@@ -78,6 +78,8 @@ object Trace {
         sb.append("</trkseg></trk></gpx>\n")
         val n = "photos_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".gpx"
         return try {
+            // supprime les anciennes cartes photos_*.gpx (copies jetables) pour ne garder que la nouvelle
+            try { c.contentResolver.delete(MediaStore.Files.getContentUri("external"), "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?", arrayOf("photos_%.gpx", "Documents/TRACE_PHOTO/")) } catch (_: Exception) {}
             val v = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, n)
                 put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
