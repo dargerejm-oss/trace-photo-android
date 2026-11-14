@@ -22,6 +22,7 @@ class JournalActivity : Activity() {
     }
     private val sp by lazy { getSharedPreferences("trace", MODE_PRIVATE) }
     private var reel = false
+    private val joursTrace get() = sp.getBoolean("j_jours_trace", false)
     private val avecTrace get() = sp.getBoolean("j_trace", false)
     private var nbPhotos = 0
     private lateinit var titre: TextView
@@ -39,10 +40,10 @@ class JournalActivity : Activity() {
         val ent = Journal.vivantes(this).filter { it.jpeg && it.t > 0 }
         nbPhotos = ent.size
         val parJ = ent.groupBy { df.format(Date(it.t)) }
-        val ptsJ = if (reel) Trace.lireTout(this).groupBy { df.format(Date(it.t)) } else emptyMap()
-        val cles = (if (reel) parJ.keys + ptsJ.keys else parJ.keys).toSortedSet(compareByDescending { it })
-        jours = cles.map { k -> val v = parJ[k] ?: emptyList()
-            Jour(k, v, v.map { it.lieu.removePrefix("≈ ").trim() }.filter { it.isNotEmpty() }.distinct(), if (reel) km(ptsJ[k] ?: emptyList()) else kmPhotos(v), !reel) }
+        val ptsJ = if (joursTrace) Trace.lireTout(this).groupBy { df.format(Date(it.t)) } else emptyMap()
+        val cles = (parJ.keys + ptsJ.keys).toSortedSet(compareByDescending { it })
+        jours = cles.map { k -> val v = parJ[k] ?: emptyList(); val tr = ptsJ[k] ?: emptyList()
+            Jour(k, v, v.map { it.lieu.removePrefix("≈ ").trim() }.filter { it.isNotEmpty() }.distinct(), if (tr.size > 1) km(tr) else kmPhotos(v), tr.size <= 1) }
         filtre = jours
     }
     private fun majEntete() {
@@ -81,6 +82,8 @@ class JournalActivity : Activity() {
             LinearLayout.LayoutParams(-1, dp(48)).apply { setMargins(dp(9), dp(4), dp(9), 0) })
         root.addView(CheckBox(this).apply { text = "🥾 Ajouter ma trace GPS réelle sur la carte"; textSize = 15f; setPadding(dp(14), dp(6), dp(14), dp(6)); isChecked = avecTrace
             setOnCheckedChangeListener { _, v -> sp.edit().putBoolean("j_trace", v).apply() } })
+        root.addView(CheckBox(this).apply { text = "📅 Afficher aussi les jours sans photo (trace seule)"; textSize = 15f; setPadding(dp(14), dp(2), dp(14), dp(6)); isChecked = joursTrace
+            setOnCheckedChangeListener { _, v -> sp.edit().putBoolean("j_jours_trace", v).apply(); calculer(); majEntete(); rech.setText(""); dessiner() } })
         val sv = ScrollView(this); liste = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(20)) }
         sv.addView(liste); root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
