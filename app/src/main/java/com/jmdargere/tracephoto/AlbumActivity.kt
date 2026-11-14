@@ -138,6 +138,12 @@ class AlbumActivity : Activity() {
         l3.addView(bt("💾 Enregistrer", "#2E7D32") { enregistrer() }, lp())
         l3.addView(bt("📂 Mes albums", "#6A1B9A") { mesAlbums() }, lp())
         root.addView(l3)
+        root.addView(bt("📍 Retrouver les positions manquantes", "#455A64") {
+            val n = Journal.completer(this)
+            Toast.makeText(this, if (n > 0) "$n photo(s) placée(s) d'après la trace" else "Aucune photo à compléter (pas de trace pour ces heures)", Toast.LENGTH_LONG).show()
+            photos = Journal.vivantes(this).filter { it.jpeg && it.t > 0 }.sortedBy { it.t }
+            maj()
+        }, LinearLayout.LayoutParams(-1, dp(46)).apply { setMargins(dp(9), 0, dp(9), dp(4)) })
         val grille = GridView(this).apply { numColumns = 3; verticalSpacing = dp(4); horizontalSpacing = dp(4); setPadding(dp(4), dp(4), dp(4), dp(4)) }
         adapt = object : BaseAdapter() {
             override fun getCount() = photos.size

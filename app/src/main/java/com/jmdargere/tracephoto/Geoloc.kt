@@ -37,6 +37,27 @@ object Journal {
     fun ajouter(c: Context, cle: String, e: Entree) {
         f(c).appendText(listOf(cle, e.uri, e.nom, e.lat?.toString() ?: "", e.lon?.toString() ?: "", e.lieu, e.t, if (e.jpeg) "1" else "0").joinToString("\t") + "\n")
     }
+    /** Complète dans le journal (seulement) les photos sans position, d'après la trace GPS. Les fichiers photo ne sont pas modifiés. Retourne le nombre de photos complétées. */
+    @Synchronized fun completer(c: Context): Int {
+        val pts = Trace.lireTout(c); if (pts.isEmpty()) return 0
+        val fi = f(c); if (!fi.exists()) return 0
+        var n = 0
+        val sortie = fi.readLines().map { l ->
+            val p = l.split('\t').toMutableList()
+            if (p.size >= 8 && p[7] == "1" && p[3].isEmpty() && p[4].isEmpty()) {
+                val t = p[6].toLongOrNull() ?: 0L
+                val q = if (t > 0) Trace.position(pts, t) else null
+                if (q != null) {
+                    p[3] = q.lat.toString(); p[4] = q.lon.toString()
+                    val v = try { Lieux.chercher(c, q.lat, q.lon)?.texte() ?: "" } catch (_: Exception) { "" }
+                    p[5] = "≈ " + v; n++
+                    p.joinToString("\t")
+                } else l
+            } else l
+        }
+        if (n > 0) fi.writeText(sortie.joinToString("\n") + "\n")
+        return n
+    }
     fun lire(c: Context): List<Entree> {
         val out = ArrayList<Entree>()
         try { f(c).forEachLine { l -> val p = l.split('\t')
