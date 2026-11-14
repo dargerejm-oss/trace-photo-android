@@ -38,6 +38,10 @@ class MainActivity : Activity() {
     private lateinit var etFuseau: EditText
     private lateinit var etDecal: EditText
     private lateinit var cbSans: CheckBox
+    private lateinit var cbSup: CheckBox
+    private var dernierGeo: Geoloc? = null
+    private var dernierBilan: Bilan? = null
+    private val RC_AUTH = 3
     private lateinit var cbLieu: CheckBox
     private lateinit var cbRen: CheckBox
     private lateinit var cbAuto: CheckBox
@@ -104,6 +108,7 @@ class MainActivity : Activity() {
         root.addView(txt(T.t("decal"), 13f))
         etDecal = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED; setText(sp.getString("decal", "")) }
         root.addView(etDecal)
+        cbSup = CheckBox(this).apply { text = T.t("o_sup"); isChecked = sp.getBoolean("sup", true) }; root.addView(cbSup)
         cbSans = CheckBox(this).apply { text = T.t("o_sans"); isChecked = sp.getBoolean("sans", true) }; root.addView(cbSans)
         cbLieu = CheckBox(this).apply { text = T.t("o_lieu"); isChecked = sp.getBoolean("lieu", true) }; root.addView(cbLieu)
         cbRen = CheckBox(this).apply { text = T.t("o_ren"); isChecked = sp.getBoolean("ren", true) }; root.addView(cbRen)
@@ -121,7 +126,7 @@ class MainActivity : Activity() {
     }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }
 
-    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).apply() }
+    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).apply() }
 
     private fun tick() {
         val on = TraceService.actif
@@ -180,6 +185,7 @@ class MainActivity : Activity() {
     } catch (_: Exception) { false }
 
     override fun onActivityResult(rc: Int, res: Int, d: Intent?) {
+        if (rc == RC_AUTH) { if (res == RESULT_OK) supprimerMaintenant(); return }
         if (rc == RC_DOSSIER && res == RESULT_OK && d?.data != null) {
             val u = d.data!!
             try { contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } catch (_: Exception) {}
@@ -199,7 +205,7 @@ class MainActivity : Activity() {
         val offSec = if (fz != null) (fz * 3600).toInt() else auto
         val dec = etDecal.text.toString().trim().toIntOrNull() ?: 0
         if (TraceService.actif) { startService(Intent(this, TraceService::class.java).setAction("STOP")) }
-        val g = Geoloc(this, u, offSec, dec, cbLieu.isChecked, cbRen.isChecked, cbCoord.isChecked, cbSans.isChecked, Lieux.disponible(this)); travail = g
+        val g = Geoloc(this, u, offSec, dec, cbLieu.isChecked, cbRen.isChecked, cbCoord.isChecked, cbSans.isChecked, Lieux.disponible(this)); travail = g; dernierGeo = g; dernierBilan = null
         dernierArbre = u; dernierVisu = null; btnCarteVue.visibility = View.GONE
         Thread {
             if (TraceService.actif) Thread.sleep(1500)
@@ -234,18 +240,50 @@ class MainActivity : Activity() {
         } catch (_: Exception) { Toast.makeText(this, T.t("pas_carte"), Toast.LENGTH_LONG).show() }
     }
 
+    private fun proposerSuppression() {
+        val b = dernierBilan ?: return
+        if (!cbSup.isChecked || b.aSupprimer.isEmpty() || dernierGeo?.annule == true) return
+        android.app.AlertDialog.Builder(this).setTitle(T.t("sup_titre")).setMessage(T.f("sup_msg", b.aSupprimer.size))
+            .setPositiveButton(T.t("sup_oui")) { _, _ ->
+                val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+                if (!km.isDeviceSecure) { Toast.makeText(this, T.t("sup_pas_verrou"), Toast.LENGTH_LONG).show() }
+                else {
+                    @Suppress("DEPRECATION") val i = km.createConfirmDeviceCredentialIntent(T.t("sup_auth_t"), T.t("sup_auth_d"))
+                    if (i != null) startActivityForResult(i, RC_AUTH) else Toast.makeText(this, T.t("sup_pas_verrou"), Toast.LENGTH_LONG).show()
+                }
+            }.setNegativeButton(T.t("sup_non"), null).setCancelable(false).show()
+    }
+
+    private fun supprimerMaintenant() {
+        val g = dernierGeo ?: return; val b = dernierBilan ?: return
+        enCours = true; barre.visibility = View.VISIBLE; barre.isIndeterminate = false; barre.max = b.aSupprimer.size
+        Thread {
+            g.supprimerOriginaux(b) { i, n -> h.post { barre.progress = i; carte.text = T.f("traite", i, n) } }
+            h.post {
+                enCours = false; barre.visibility = View.GONE; carte.text = ""
+                var t = bilanTxt.text.toString() + T.f("bilan_sup", b.supprimees)
+                if (b.echecSupp > 0) t += T.f("bilan_sup_echec", b.echecSupp)
+                bilanTxt.text = t; b.aSupprimer.clear()
+                banniere.text = T.t("fini"); banniere.background = fond(Color.parseColor("#2E7D32"))
+                try { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90).startTone(ToneGenerator.TONE_PROP_ACK, 600) } catch (_: Exception) {}
+            }
+        }.start()
+    }
+
     private fun fin(b: Bilan?, titre: String, couleur: String) {
         enCours = false; btnGeo.isEnabled = true; barre.visibility = View.GONE; btnStop.visibility = View.GONE
         banniere.text = titre; banniere.background = fond(Color.parseColor(couleur)); banniere.visibility = View.VISIBLE
         if (b != null) {
-            var t = T.f("bilan", b.importees, b.avecPos, b.verifiees, b.sansPos, b.deja, b.raw, b.sansDate, b.erreurs)
+            var t = T.f("bilan", b.importees, b.avecPos, b.verifiees, b.sansPos, b.deja, b.sansDate, b.erreurs)
             if (b.lieux.isNotEmpty()) t += T.f("bilan_lieux", b.lieux.entries.sortedByDescending { it.value }.joinToString("\n") { "• ${it.key} : ${it.value}" })
             else if ((cbLieu.isChecked || cbRen.isChecked) && !Lieux.disponible(this)) t += "\n\n" + T.t("pas_lieux")
             bilanTxt.text = t; bilanTxt.visibility = View.VISIBLE
+            dernierBilan = b
         }
         carte.text = ""
         if (b != null && dernierVisu != null) btnCarteVue.visibility = View.VISIBLE
         try { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90).startTone(ToneGenerator.TONE_PROP_ACK, 600) } catch (_: Exception) {}
+        if (b != null) h.postDelayed({ proposerSuppression() }, 700)
         try { (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).vibrate(VibrationEffect.createOneShot(400, VibrationEffect.DEFAULT_AMPLITUDE)) } catch (_: Exception) {}
         try { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}
     }

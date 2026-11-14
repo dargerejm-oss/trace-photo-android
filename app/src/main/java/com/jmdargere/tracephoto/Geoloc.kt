@@ -17,6 +17,8 @@ class Wp(val nom: String, val lat: Double, val lon: Double, val t: Long, val des
 class Bilan {
     val wpts = ArrayList<Wp>()
     val lieux = java.util.TreeMap<String, Int>()
+    val aSupprimer = ArrayList<Pair<Uri, Uri>>()   // (original sur la carte, copie vérifiée sur le téléphone)
+    var supprimees = 0; var echecSupp = 0
     var importees = 0; var deja = 0; var avecPos = 0; var sansPos = 0; var sansDate = 0; var verifiees = 0; var erreurs = 0; var raw = 0
 }
 
@@ -67,7 +69,7 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
                     while (q.moveToNext()) {
                         val did = q.getString(0); val nom = q.getString(1) ?: continue; val mime = q.getString(2) ?: ""
                         if (mime == DocumentsContract.Document.MIME_TYPE_DIR) { if (!nom.startsWith(".")) dossiers.add(did) }
-                        else { val e = ext(nom); if (e in jpg || e in autres) out.add(Fichier(DocumentsContract.buildDocumentUriUsingTree(racine, id), did, nom, q.getLong(3), q.getLong(4))) }
+                        else { val e = ext(nom); if (e in jpg) out.add(Fichier(DocumentsContract.buildDocumentUriUsingTree(racine, id), did, nom, q.getLong(3), q.getLong(4))) }
                     }
                 }
             } catch (_: Exception) {}
@@ -138,33 +140,24 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
             cr.openOutputStream(dest)!!.use { o -> tmp.inputStream().use { it.copyTo(o) } }
             cr.update(dest, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
             tmp.delete()
-            if (pos != null) {
-                val ok = try { cr.openFileDescriptor(dest, "r")!!.use { p -> ExifInterface(p.fileDescriptor).latLong != null } } catch (_: Exception) { false }
-                if (ok) b.verifiees++ else b.erreurs++
-            }
+            val ok = try { cr.openFileDescriptor(dest, "r")!!.use { p -> val x = ExifInterface(p.fileDescriptor); p.statSize > 1000 && (pos == null || x.latLong != null) } } catch (_: Exception) { false }
+            if (pos != null) { if (ok) b.verifiees++ else b.erreurs++ }
+            if (ok) b.aSupprimer.add(uri to dest)
             Journal.ajouter(c, cle, Entree(dest.toString(), "$nouvelleBase.$e", pos?.lat, pos?.lon, desc, t ?: 0, true))
-        } else {
-            val files = MediaStore.Files.getContentUri("external")
-            val v = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, "$nouvelleBase.$e"); put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/Fuji X4"); put(MediaStore.MediaColumns.IS_PENDING, 1)
-            }
-            val dest = cr.insert(files, v) ?: run { b.erreurs++; return }
-            cr.openInputStream(uri)!!.use { i -> cr.openOutputStream(dest)!!.use { o -> i.copyTo(o) } }
-            cr.update(dest, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
-            if (pos != null) {
-                val x = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, "$nouvelleBase.xmp"); put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/Fuji X4")
-                }
-                val ux = cr.insert(files, x)
-                if (ux != null) { cr.openOutputStream(ux)!!.use { o -> o.write(xmp(pos, lieu).toByteArray(Charsets.UTF_8)) }; b.verifiees++ } else b.erreurs++
-            }
-            b.raw++
-            Journal.ajouter(c, cle, Entree(dest.toString(), "$nouvelleBase.$e", pos?.lat, pos?.lon, desc, t ?: 0, false))
         }
         b.importees++
         if (pos != null) b.wpts.add(Wp("$nouvelleBase.$e", pos.lat, pos.lon, t ?: 0, desc))
+    }
+
+    /** Supprime de la carte les JPEG dont la copie a été vérifiée (les RAW ne sont jamais touchés). */
+    fun supprimerOriginaux(b: Bilan, progres: (Int, Int) -> Unit) {
+        for ((i, p) in b.aSupprimer.withIndex()) {
+            progres(i + 1, b.aSupprimer.size)
+            try {
+                val copieOk = cr.openFileDescriptor(p.second, "r")?.use { it.statSize > 1000 } == true
+                if (copieOk && DocumentsContract.deleteDocument(cr, p.first)) b.supprimees++ else b.echecSupp++
+            } catch (_: Exception) { b.echecSupp++ }
+        }
     }
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;")
