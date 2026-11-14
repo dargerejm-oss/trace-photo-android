@@ -31,7 +31,7 @@ object T {
         "pas_photo" to "Aucune photo trouvée dans ce dossier.",
         "fini" to "✅  TERMINÉ",
         "arrete" to "⏹  ARRÊTÉ",
-        "bilan" to "📥 %d photo(s) copiée(s) dans l'album Fuji X4\n📍 %d avec position (%d vérifiée(s) ✅)\n❔ %d sans position (hors trace)\n⏭ %d déjà importée(s) avant\n🎞 %d RAW (avec fichier .xmp)\n🕓 %d sans date de prise de vue\n❌ %d erreur(s)",
+        "bilan" to "📥 %d photo(s) copiée(s) dans l'album Fuji X4\n📍 %d avec position (%d vérifiée(s) ✅)\n❔ %d sans position (hors trace)\n⏭ %d déjà importée(s) avant\n🕓 %d sans date de prise de vue\n❌ %d erreur(s)",
         "perm" to "La permission de position est nécessaire.",
         "perm_bg" to "Pour une trace fiable, choisis « Toujours autoriser » ou « Autoriser tout le temps ».",
         "versiontxt" to "par JM.DARGERE",
@@ -95,7 +95,7 @@ object T {
         "pas_photo" to "No photo found in this folder.",
         "fini" to "✅  DONE",
         "arrete" to "⏹  STOPPED",
-        "bilan" to "📥 %d photo(s) copied to the Fuji X4 album\n📍 %d with position (%d verified ✅)\n❔ %d without position (outside the track)\n⏭ %d already imported before\n🎞 %d RAW (with .xmp file)\n🕓 %d without capture date\n❌ %d error(s)",
+        "bilan" to "📥 %d photo(s) copied to the Fuji X4 album\n📍 %d with position (%d verified ✅)\n❔ %d without position (outside the track)\n⏭ %d already imported before\n🕓 %d without capture date\n❌ %d error(s)",
         "perm" to "Location permission is required.",
         "perm_bg" to "For a reliable track, choose “Allow all the time”.",
         "versiontxt" to "by JM.DARGERE",
@@ -136,5 +136,5 @@ object T {
         val m = if (Locale.getDefault().language == "fr") fr else en
         return m[k] ?: fr[k] ?: k
     }
-    fun f(k: String, vararg a: Any): String = String.format(t(k), *a)
+    fun f(k: String, vararg a: Any): String = try { String.format(t(k), *a) } catch (_: Exception) { t(k) }
 }

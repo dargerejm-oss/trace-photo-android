@@ -66,6 +66,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { th, e -> try { java.io.File(filesDir, "crash.txt").writeText(android.util.Log.getStackTraceString(e)) } catch (_: Exception) {}; prev?.uncaughtException(th, e) }
         val sv = ScrollView(this); sv.setBackgroundColor(Color.parseColor("#ECEFF1"))
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(30), dp(16), dp(30)) }
         sv.addView(root); setContentView(sv)
@@ -120,8 +122,14 @@ class MainActivity : Activity() {
     }
 
     private var autoFait = false
+    private fun montrerCrash() {
+        val f = java.io.File(filesDir, "crash.txt"); if (!f.exists()) return
+        val s = f.readText().take(1500); f.delete()
+        android.app.AlertDialog.Builder(this).setTitle("Erreur précédente").setMessage(s).setPositiveButton("OK", null).show()
+    }
+
     override fun onResume() {
-        super.onResume(); tick()
+        super.onResume(); tick(); montrerCrash()
         if (!autoFait && sp.getBoolean("auto", false) && !enCours && carteDetectee() != null && sp.getString("arbre", null) != null) { autoFait = true; lancer(false) }
     }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }

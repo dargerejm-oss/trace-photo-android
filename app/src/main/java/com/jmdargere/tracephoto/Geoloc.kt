@@ -29,9 +29,9 @@ class Entree(val uri: String, val nom: String, val lat: Double?, val lon: Double
 
 object Journal {
     private fun f(c: Context) = File(c.filesDir, "importes.tsv")
-    fun cles(c: Context): HashSet<String> {
-        val s = HashSet<String>()
-        try { f(c).forEachLine { l -> val p = l.split('\t'); if (p.isNotEmpty()) s.add(p[0]) } } catch (_: Exception) {}
+    fun cles(c: Context): HashMap<String, String> {
+        val s = HashMap<String, String>()
+        try { f(c).forEachLine { l -> val p = l.split('\t'); if (p.size > 1) s[p[0]] = p[1] } } catch (_: Exception) {}
         return s
     }
     fun ajouter(c: Context, cle: String, e: Entree) {
@@ -94,7 +94,13 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
             if (annule) break
             progres(i + 1, fichiers.size)
             val cle = "${f.nom}|${f.taille}|${f.modif}"
-            if (cle in faits) { b.deja++; continue }
+            val dejaUri = faits[cle]
+            if (dejaUri != null) {
+                b.deja++
+                // déjà copiée avant : si la copie existe toujours, l'original de la carte peut être supprimé
+                try { val d = Uri.parse(dejaUri); if (cr.openFileDescriptor(d, "r")?.use { it.statSize > 1000 } == true) b.aSupprimer.add(DocumentsContract.buildDocumentUriUsingTree(racine, f.docId) to d) } catch (_: Exception) {}
+                continue
+            }
             try { un(f, cle, pts, b) } catch (_: Exception) { b.erreurs++ }
         }
         return b
