@@ -30,12 +30,23 @@ class TraceService : Service() {
     private var fichier: File? = null
     private var wl: PowerManager.WakeLock? = null
     private val ecoute = LocationListener { l: Location -> noter(l) }
+    private var dernier: Location? = null
+    private var immobile = 0
+    private var lent = false
+    private var eco = true
 
     private fun noter(l: Location) {
         val f = fichier ?: return
         if (l.hasAccuracy() && l.accuracy > 150f) return
         Trace.ajouter(f, l.latitude, l.longitude, if (l.hasAltitude()) l.altitude else null, l.time)
         points++; dernierFix = System.currentTimeMillis()
+        if (eco) {
+            val d = dernier?.distanceTo(l) ?: 100f
+            dernier = l
+            if (d < 15f) immobile++ else immobile = 0
+            if (!lent && immobile >= 4) { lent = true; relancer(60_000L) }
+            else if (lent && d >= 30f) { lent = false; immobile = 0; relancer(INTERVALLE) }
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -50,12 +61,18 @@ class TraceService : Service() {
         sp.edit().putString("fichier", fichier!!.absolutePath).putBoolean("actif", true).apply()
         wl = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tracephoto:trace").apply { acquire(12 * 3600_000L) }
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        eco = sp.getBoolean("eco", true); lent = false; immobile = 0; dernier = null
         try {
             lm!!.requestLocationUpdates(LocationManager.GPS_PROVIDER, INTERVALLE, 0f, ecoute)
             if (lm!!.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) lm!!.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, INTERVALLE * 2, 0f, ecoute)
         } catch (_: SecurityException) { arreter(); return START_NOT_STICKY }
         points = Trace.lireFichierCompte(fichier!!); actif = true
         return START_STICKY
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun relancer(ms: Long) {
+        try { lm?.removeUpdates(ecoute); lm?.requestLocationUpdates(LocationManager.GPS_PROVIDER, ms, 0f, ecoute) } catch (_: Exception) {}
     }
 
     private fun arreter() {

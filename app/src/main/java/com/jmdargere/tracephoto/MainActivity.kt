@@ -38,6 +38,11 @@ class MainActivity : Activity() {
     private lateinit var etFuseau: EditText
     private lateinit var etDecal: EditText
     private lateinit var cbSans: CheckBox
+    private lateinit var cbVois: CheckBox
+    private lateinit var cbEco: CheckBox
+    private lateinit var cbParApp: CheckBox
+    private lateinit var etAlbum: EditText
+    private val RC_CALIB = 4
     private lateinit var cbSup: CheckBox
     private var dernierGeo: Geoloc? = null
     private var dernierBilan: Bilan? = null
@@ -110,15 +115,63 @@ class MainActivity : Activity() {
         root.addView(txt(T.t("decal"), 13f))
         etDecal = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED; setText(sp.getString("decal", "")) }
         root.addView(etDecal)
+        root.addView(Button(this).apply { text = T.t("calib"); isAllCaps = false; setOnClickListener { calibrer() } })
         cbSup = CheckBox(this).apply { text = T.t("o_sup"); isChecked = sp.getBoolean("sup", true) }; root.addView(cbSup)
         cbSans = CheckBox(this).apply { text = T.t("o_sans"); isChecked = sp.getBoolean("sans", true) }; root.addView(cbSans)
         cbLieu = CheckBox(this).apply { text = T.t("o_lieu"); isChecked = sp.getBoolean("lieu", true) }; root.addView(cbLieu)
         cbRen = CheckBox(this).apply { text = T.t("o_ren"); isChecked = sp.getBoolean("ren", true) }; root.addView(cbRen)
         cbCoord = CheckBox(this).apply { text = T.t("o_coord"); isChecked = sp.getBoolean("coord", true) }; root.addView(cbCoord)
+        cbVois = CheckBox(this).apply { text = T.t("o_vois"); isChecked = sp.getBoolean("vois", true) }; root.addView(cbVois)
+        cbEco = CheckBox(this).apply { text = T.t("o_eco"); isChecked = sp.getBoolean("eco", true) }; root.addView(cbEco)
+        cbParApp = CheckBox(this).apply { text = T.t("o_parapp"); isChecked = sp.getBoolean("parapp", false) }; root.addView(cbParApp)
+        root.addView(txt(T.t("album"), 13f))
+        etAlbum = EditText(this).apply { setText(sp.getString("album", "Fuji X4")); setSingleLine() }; root.addView(etAlbum)
         cbAuto = CheckBox(this).apply { text = T.t("o_auto"); isChecked = sp.getBoolean("auto", false) }; root.addView(cbAuto)
         root.addView(Button(this).apply { text = T.t("batt"); isAllCaps = false
             setOnClickListener { try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {} } })
         root.addView(txt(T.t("garde2") + "\n" + T.t("credit"), 12f, Color.parseColor("#546E7A")).apply { setPadding(0, dp(12), 0, 0) })
+    }
+
+
+    private var calibDlg: android.app.AlertDialog? = null
+    private fun calibrer() {
+        val tv = TextView(this).apply { textSize = 44f; gravity = Gravity.CENTER; typeface = Typeface.MONOSPACE; setPadding(0, dp(24), 0, dp(24)) }
+        val fm = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT)
+        val run = object : Runnable { override fun run() { tv.text = fm.format(java.util.Date()); h.postDelayed(this, 100) } }
+        h.post(run)
+        val lay = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0)
+            addView(TextView(this@MainActivity).apply { text = T.t("calib_1") }); addView(tv) }
+        calibDlg = android.app.AlertDialog.Builder(this).setTitle(T.t("calib")).setView(lay)
+            .setPositiveButton(T.t("calib_suite")) { _, _ -> h.removeCallbacks(run)
+                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/jpeg"; putExtra(Intent.EXTRA_INITIAL_URI, null as Uri?) }
+                startActivityForResult(i, RC_CALIB) }
+            .setNegativeButton("✕") { _, _ -> h.removeCallbacks(run) }.setOnCancelListener { h.removeCallbacks(run) }.show()
+    }
+
+    private fun calibPhoto(u: Uri) {
+        val naif: java.time.LocalDateTime? = try {
+            contentResolver.openFileDescriptor(u, "r")!!.use { p ->
+                val x = androidx.exifinterface.media.ExifInterface(p.fileDescriptor)
+                val s = x.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL) ?: x.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME)
+                s?.let { java.time.LocalDateTime.parse(it.trim(), java.time.format.DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")) }
+            }
+        } catch (_: Exception) { null }
+        if (naif == null) { Toast.makeText(this, T.t("calib_err"), Toast.LENGTH_LONG).show(); return }
+        val img = ImageView(this).apply { adjustViewBounds = true; setImageURI(u) }
+        val et = EditText(this).apply { hint = "HH:MM:SS"; inputType = InputType.TYPE_CLASS_DATETIME; setSingleLine() }
+        val lay = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0)
+            addView(img, LinearLayout.LayoutParams(-1, dp(220))); addView(TextView(this@MainActivity).apply { text = T.f("calib_2", naif.toLocalTime().toString()) }); addView(et) }
+        android.app.AlertDialog.Builder(this).setTitle(T.t("calib")).setView(lay)
+            .setPositiveButton("OK") { _, _ ->
+                try {
+                    val p = et.text.toString().trim().split(":").map { it.toInt() }
+                    val saisi = java.time.LocalTime.of(p[0], p[1], if (p.size > 2) p[2] else 0)
+                    var d = java.time.Duration.between(saisi, naif.toLocalTime()).seconds
+                    if (d > 43200) d -= 86400; if (d < -43200) d += 86400
+                    etDecal.setText(d.toString()); sauveReglages()
+                    Toast.makeText(this, T.f("calib_ok", d), Toast.LENGTH_LONG).show()
+                } catch (_: Exception) { Toast.makeText(this, T.t("calib_err"), Toast.LENGTH_LONG).show() } }
+            .setNegativeButton("✕", null).show()
     }
 
     private var autoFait = false
@@ -134,7 +187,7 @@ class MainActivity : Activity() {
     }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }
 
-    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).apply() }
+    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).putBoolean("vois", cbVois.isChecked).putBoolean("eco", cbEco.isChecked).putBoolean("parapp", cbParApp.isChecked).putString("album", etAlbum.text.toString().trim()).apply() }
 
     private fun tick() {
         val on = TraceService.actif
@@ -193,6 +246,7 @@ class MainActivity : Activity() {
     } catch (_: Exception) { false }
 
     override fun onActivityResult(rc: Int, res: Int, d: Intent?) {
+        if (rc == RC_CALIB) { if (res == RESULT_OK && d?.data != null) calibPhoto(d.data!!); return }
         if (rc == RC_AUTH) { if (res == RESULT_OK) supprimerMaintenant(); return }
         if (rc == RC_DOSSIER && res == RESULT_OK && d?.data != null) {
             val u = d.data!!
@@ -213,7 +267,7 @@ class MainActivity : Activity() {
         val offSec = if (fz != null) (fz * 3600).toInt() else auto
         val dec = etDecal.text.toString().trim().toIntOrNull() ?: 0
         if (TraceService.actif) { startService(Intent(this, TraceService::class.java).setAction("STOP")) }
-        val g = Geoloc(this, u, offSec, dec, cbLieu.isChecked, cbRen.isChecked, cbCoord.isChecked, cbSans.isChecked, Lieux.disponible(this)); travail = g; dernierGeo = g; dernierBilan = null
+        val g = Geoloc(this, u, offSec, dec, cbLieu.isChecked, cbRen.isChecked, cbCoord.isChecked, cbSans.isChecked, cbVois.isChecked, etAlbum.text.toString().trim().ifBlank { "Fuji X4" }, cbParApp.isChecked, Lieux.disponible(this)); travail = g; dernierGeo = g; dernierBilan = null
         dernierArbre = u; dernierVisu = null; btnCarteVue.visibility = View.GONE
         Thread {
             if (TraceService.actif) Thread.sleep(1500)
@@ -283,6 +337,7 @@ class MainActivity : Activity() {
         banniere.text = titre; banniere.background = fond(Color.parseColor(couleur)); banniere.visibility = View.VISIBLE
         if (b != null) {
             var t = T.f("bilan", b.importees, b.avecPos, b.verifiees, b.sansPos, b.deja, b.sansDate, b.erreurs)
+            if (b.estimees > 0) t += T.f("bilan_est", b.estimees)
             if (b.lieux.isNotEmpty()) t += T.f("bilan_lieux", b.lieux.entries.sortedByDescending { it.value }.joinToString("\n") { "• ${it.key} : ${it.value}" })
             else if ((cbLieu.isChecked || cbRen.isChecked) && !Lieux.disponible(this)) t += "\n\n" + T.t("pas_lieux")
             bilanTxt.text = t; bilanTxt.visibility = View.VISIBLE

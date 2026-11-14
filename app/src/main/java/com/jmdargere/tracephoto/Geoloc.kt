@@ -19,7 +19,7 @@ class Bilan {
     val lieux = java.util.TreeMap<String, Int>()
     val aSupprimer = ArrayList<Pair<Uri, Uri>>()   // (original sur la carte, copie vérifiée sur le téléphone)
     var supprimees = 0; var echecSupp = 0
-    var importees = 0; var deja = 0; var avecPos = 0; var sansPos = 0; var sansDate = 0; var verifiees = 0; var erreurs = 0; var raw = 0
+    var estimees = 0; var importees = 0; var deja = 0; var avecPos = 0; var sansPos = 0; var sansDate = 0; var verifiees = 0; var erreurs = 0; var raw = 0
 }
 
 class Fichier(val parent: Uri, val docId: String, val nom: String, val taille: Long, val modif: Long)
@@ -48,7 +48,12 @@ object Journal {
 /** Copie les NOUVELLES photos de la carte vers le téléphone (album « Fuji X4 »), avec position + lieu. La carte n'est jamais modifiée. */
 class Geoloc(private val c: Context, private val racine: Uri, private val decalageUtcSec: Int, private val decalHorlogeSec: Int,
              private val ecrireLieu: Boolean, private val renommer: Boolean, private val coordNom: Boolean, private val sansPosition: Boolean,
+             private val voisine: Boolean, private val albumFixe: String, private val albumParAppareil: Boolean,
              @Volatile var lieuxOk: Boolean) {
+    private class Info(val t: Long?, val make: String?, val model: String?)
+    private val infos = HashMap<String, Info>()
+    private class Ref(val t: Long, val lat: Double, val lon: Double)
+    private val refs = ArrayList<Ref>()
     @Volatile var annule = false
     private val cr = c.contentResolver
     private val fmt = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
@@ -88,8 +93,30 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
         } catch (_: Exception) { null }
     }
 
+    private fun lireInfo(f: Fichier): Info {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(racine, f.docId)
+        return try {
+            cr.openFileDescriptor(uri, "r")!!.use { p ->
+                val x = ExifInterface(p.fileDescriptor)
+                Info(heure(x), x.getAttribute(ExifInterface.TAG_MAKE), x.getAttribute(ExifInterface.TAG_MODEL))
+            }
+        } catch (_: Exception) { Info(null, null, null) }
+    }
+
     fun traiter(fichiers: List<Fichier>, pts: List<Pt>, progres: (Int, Int) -> Unit): Bilan {
         val b = Bilan(); val faits = Journal.cles(c)
+        // passe 1 : heures de prise de vue + positions connues (pour estimer les photos hors trace)
+        for (e in Journal.lire(c)) if (e.lat != null && e.lon != null && e.t > 0 && !e.lieu.startsWith("≈")) refs.add(Ref(e.t, e.lat, e.lon))
+        for ((i, f) in fichiers.withIndex()) {
+            if (annule) break
+            progres(i + 1, fichiers.size)
+            val cle = "${f.nom}|${f.taille}|${f.modif}"
+            if (faits[cle] != null) continue
+            val inf = lireInfo(f); infos[cle] = inf
+            val tt = inf.t
+            if (tt != null) Trace.position(pts, tt)?.let { refs.add(Ref(tt, it.lat, it.lon)) }
+        }
+        // passe 2 : import
         for ((i, f) in fichiers.withIndex()) {
             if (annule) break
             progres(i + 1, fichiers.size)
@@ -97,7 +124,6 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
             val dejaUri = faits[cle]
             if (dejaUri != null) {
                 b.deja++
-                // déjà copiée avant : si la copie existe toujours, l'original de la carte peut être supprimé
                 try { val d = Uri.parse(dejaUri); if (cr.openFileDescriptor(d, "r")?.use { it.statSize > 1000 } == true) b.aSupprimer.add(DocumentsContract.buildDocumentUriUsingTree(racine, f.docId) to d) } catch (_: Exception) {}
                 continue
             }
@@ -106,24 +132,38 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
         return b
     }
 
+    private fun albumDe(i: Info): String {
+        if (!albumParAppareil || (i.make.isNullOrBlank() && i.model.isNullOrBlank())) return albumFixe.ifBlank { "Fuji X4" }
+        var mk = (i.make ?: "").trim(); val md = (i.model ?: "").trim()
+        mk = if (mk.uppercase(Locale.ROOT).startsWith("FUJI")) "Fuji" else mk.lowercase(Locale.ROOT).replaceFirstChar { it.uppercase() }
+        val n = if (md.lowercase(Locale.ROOT).startsWith(mk.lowercase(Locale.ROOT))) md else "$mk $md"
+        return n.trim().replace(Regex("[\\\\/:*?\"<>|]"), "").ifBlank { albumFixe.ifBlank { "Fuji X4" } }
+    }
+
     private fun un(f: Fichier, cle: String, pts: List<Pt>, b: Bilan) {
         val uri = DocumentsContract.buildDocumentUriUsingTree(racine, f.docId)
         val e = ext(f.nom); val base = f.nom.substringBeforeLast('.')
-        var t: Long? = null
-        try { cr.openFileDescriptor(uri, "r")!!.use { p -> t = heure(ExifInterface(p.fileDescriptor)) } } catch (_: Exception) {}
-        val pos = t?.let { Trace.position(pts, it) }
+        val inf = infos[cle] ?: lireInfo(f)
+        val t: Long? = inf.t
+        var pos = t?.let { Trace.position(pts, it) }
+        var approx = false
+        if (pos == null && voisine && t != null) {
+            var best: Ref? = null; var bd = 3 * 3600_000L + 1
+            for (r in refs) { val d = Math.abs(r.t - t); if (d < bd) { bd = d; best = r } }
+            if (best != null) { pos = Pt(t, best.lat, best.lon, null); approx = true }
+        }
         if (t == null) b.sansDate++
         if (pos == null && !sansPosition) return
         val lieu = if (pos != null && lieuxOk) Lieux.chercher(c, pos.lat, pos.lon) else null
-        if (pos != null) { b.avecPos++; if (lieu != null) b.lieux[lieu.texte()] = (b.lieux[lieu.texte()] ?: 0) + 1 } else b.sansPos++
+        if (pos != null) { b.avecPos++; if (approx) b.estimees++; if (lieu != null) b.lieux[lieu.texte()] = (b.lieux[lieu.texte()] ?: 0) + 1 } else b.sansPos++
 
         var nouvelleBase = base
         if (renommer && t != null) {
-            val local = LocalDateTime.ofEpochSecond(t!! / 1000 + decalHorlogeSec + decalageUtcSec, 0, ZoneOffset.UTC)
+            val local = LocalDateTime.ofEpochSecond(t / 1000 + decalHorlogeSec + decalageUtcSec, 0, ZoneOffset.UTC)
             val coord = if (coordNom && pos != null) "_" + "%s%.4f_%s%.4f".format(Locale.US, if (pos.lat >= 0) "N" else "S", Math.abs(pos.lat), if (pos.lon >= 0) "E" else "W", Math.abs(pos.lon)) else ""
             nouvelleBase = fmtNom.format(local) + (if (lieu != null) "_" + lieu.court() else "") + coord + "_" + base
         }
-        val desc = lieu?.texte() ?: ""
+        val desc = (if (approx) "≈ " else "") + (lieu?.texte() ?: "")
         if (e in jpg) {
             val tmp = File(c.cacheDir, "imp.jpg")
             cr.openInputStream(uri)!!.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
@@ -134,13 +174,13 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
                     ex.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${Math.round(Math.abs(pos.ele) * 100)}/100")
                     ex.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, if (pos.ele < 0) "1" else "0")
                 }
-                if (ecrireLieu && desc.isNotEmpty() && ex.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION).isNullOrBlank()) ex.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, desc)
+                if (ecrireLieu && desc.removePrefix("≈ ").isNotEmpty() && ex.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION).isNullOrBlank()) ex.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, desc)
                 ex.saveAttributes()
             }
             val v = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, "$nouvelleBase.$e"); put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Fuji X4"); put(MediaStore.Images.Media.IS_PENDING, 1)
-                if (t != null) put(MediaStore.Images.Media.DATE_TAKEN, t!!)
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/" + albumDe(inf)); put(MediaStore.Images.Media.IS_PENDING, 1)
+                if (t != null) put(MediaStore.Images.Media.DATE_TAKEN, t)
             }
             val dest = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v) ?: run { b.erreurs++; return }
             cr.openOutputStream(dest)!!.use { o -> tmp.inputStream().use { it.copyTo(o) } }
