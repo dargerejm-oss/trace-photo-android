@@ -54,7 +54,6 @@ class MainActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON.let { 0 })
         val sv = ScrollView(this); sv.setBackgroundColor(Color.parseColor("#ECEFF1"))
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(30), dp(16), dp(30)) }
         sv.addView(root); setContentView(sv)
