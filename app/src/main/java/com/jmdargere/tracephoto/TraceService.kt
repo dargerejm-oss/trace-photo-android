@@ -44,16 +44,35 @@ class TraceService : Service() {
     private var debut = 0L
     private var parProg = false
     private var eco = true
+    private var lisse = true
+    private var gardee: Location? = null
+
+    /** Lissage : ignore le bruit du GPS (déplacement plus petit que l'imprécision) et les sauts impossibles. */
+    private fun garder(l: Location): Boolean {
+        if (!lisse) return true
+        val g = gardee
+        if (g != null) {
+            val d = g.distanceTo(l); val dt = (l.time - g.time) / 1000.0
+            val seuil = maxOf(10f, if (l.hasAccuracy()) l.accuracy else 0f, if (g.hasAccuracy()) g.accuracy else 0f)
+            if (d < seuil) return false
+            if (dt in 0.0..60.0 && d / maxOf(dt, 1.0) > 60.0) return false
+        }
+        gardee = l
+        return true
+    }
 
     private fun noter(l: Location) {
         val f = fichier ?: return
         if (parProg && !Programme.dedans(this)) { arreter(); return }
-        if (l.hasAccuracy() && l.accuracy > 150f) return
-        Trace.ajouter(f, l.latitude, l.longitude, if (l.hasAltitude()) l.altitude else null, l.time)
-        points++; dernierFix = System.currentTimeMillis(); dernierLoc = l
-        try { val off = java.util.TimeZone.getDefault().getOffset(l.time) / 1000
-            val tz = java.io.File(filesDir, "tz.tsv")
-            if (off != dernierTz) { dernierTz = off; tz.appendText("${l.time}\t$off\n") } } catch (_: Exception) {}
+        if (l.hasAccuracy() && l.accuracy > (if (lisse) 30f else 150f)) return
+        dernierFix = System.currentTimeMillis(); dernierLoc = l
+        if (garder(l)) {
+            Trace.ajouter(f, l.latitude, l.longitude, if (l.hasAltitude()) l.altitude else null, l.time)
+            points++
+            try { val off = java.util.TimeZone.getDefault().getOffset(l.time) / 1000
+                val tz = java.io.File(filesDir, "tz.tsv")
+                if (off != dernierTz) { dernierTz = off; tz.appendText("${l.time}\t$off\n") } } catch (_: Exception) {}
+        }
         if (eco) {
             val d = dernier?.distanceTo(l) ?: 100f
             dernier = l
@@ -76,7 +95,7 @@ class TraceService : Service() {
         wl = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tracephoto:trace").apply { acquire(16 * 3600_000L) }
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         parProg = intent?.getBooleanExtra("prog", false) == true
-        eco = sp.getBoolean("eco", true); lent = false; immobile = 0; dernier = null
+        eco = sp.getBoolean("eco", true); lisse = sp.getBoolean("lisse", true); gardee = null; lent = false; immobile = 0; dernier = null
         try {
             lm!!.requestLocationUpdates(LocationManager.GPS_PROVIDER, INTERVALLE, 0f, ecoute)
             if (lm!!.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) lm!!.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, INTERVALLE * 2, 0f, ecoute)

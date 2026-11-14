@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private lateinit var etPf: EditText
     private lateinit var sablier: android.webkit.WebView
     private lateinit var cbEco: CheckBox
+    private lateinit var cbLisse: CheckBox
     private lateinit var cbParApp: CheckBox
     private lateinit var etAlbum: EditText
     private val RC_CALIB = 4
@@ -135,6 +136,7 @@ class MainActivity : Activity() {
         cbCoord = CheckBox(this).apply { text = T.t("o_coord"); isChecked = sp.getBoolean("coord", true) }; root.addView(cbCoord)
         cbVois = CheckBox(this).apply { text = T.t("o_vois"); isChecked = sp.getBoolean("vois", true) }; root.addView(cbVois)
         cbEco = CheckBox(this).apply { text = T.t("o_eco"); isChecked = sp.getBoolean("eco", true) }; root.addView(cbEco)
+        cbLisse = CheckBox(this).apply { text = "〰 Lisser la trace (ignorer le bruit et les sauts du GPS)"; isChecked = sp.getBoolean("lisse", true) }; root.addView(cbLisse)
         cbParApp = CheckBox(this).apply { text = T.t("o_parapp"); isChecked = sp.getBoolean("parapp", false) }; root.addView(cbParApp)
         root.addView(txt(T.t("album"), 13f))
         etAlbum = EditText(this).apply { setText(sp.getString("album", "Fuji X4")); setSingleLine() }; root.addView(etAlbum)
@@ -256,7 +258,7 @@ class MainActivity : Activity() {
     }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }
 
-    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).putBoolean("vois", cbVois.isChecked).putBoolean("eco", cbEco.isChecked).putBoolean("parapp", cbParApp.isChecked).putString("album", etAlbum.text.toString().trim()).putInt("prog_d", (etPd.text.toString().toIntOrNull() ?: 8).coerceIn(0, 23)).putInt("prog_f", (etPf.text.toString().toIntOrNull() ?: 20).coerceIn(0, 23)).apply(); Programme.armer(this) }
+    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).putBoolean("vois", cbVois.isChecked).putBoolean("eco", cbEco.isChecked).putBoolean("lisse", cbLisse.isChecked).putBoolean("parapp", cbParApp.isChecked).putString("album", etAlbum.text.toString().trim()).putInt("prog_d", (etPd.text.toString().toIntOrNull() ?: 8).coerceIn(0, 23)).putInt("prog_f", (etPf.text.toString().toIntOrNull() ?: 20).coerceIn(0, 23)).apply(); Programme.armer(this) }
 
     private fun tick() {
         val on = TraceService.actif
