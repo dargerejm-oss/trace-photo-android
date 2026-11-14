@@ -11,6 +11,8 @@ import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.*
+import android.app.AlertDialog
+import android.widget.Toast
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -82,7 +84,7 @@ class JournalActivity : Activity() {
             LinearLayout.LayoutParams(-1, dp(48)).apply { setMargins(dp(9), dp(4), dp(9), 0) })
         root.addView(CheckBox(this).apply { text = "🥾 Ajouter ma trace GPS réelle sur la carte"; textSize = 15f; setPadding(dp(14), dp(6), dp(14), dp(6)); isChecked = avecTrace
             setOnCheckedChangeListener { _, v -> sp.edit().putBoolean("j_trace", v).apply() } })
-        root.addView(CheckBox(this).apply { text = "📅 Afficher aussi les jours sans photo (trace seule)"; textSize = 15f; setPadding(dp(14), dp(2), dp(14), dp(6)); isChecked = joursTrace
+        root.addView(CheckBox(this).apply { text = "📅 Afficher aussi les jours sans photo (trace seule)  •  appui long sur un jour = supprimer sa trace"; textSize = 15f; setPadding(dp(14), dp(2), dp(14), dp(6)); isChecked = joursTrace
             setOnCheckedChangeListener { _, v -> sp.edit().putBoolean("j_jours_trace", v).apply(); calculer(); majEntete(); rech.setText(""); dessiner() } })
         val sv = ScrollView(this); liste = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(20)) }
         sv.addView(liste); root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -101,11 +103,24 @@ class JournalActivity : Activity() {
         if (filtre.isEmpty()) liste.addView(TextView(this).apply { text = T.t("j_vide"); textSize = 16f; setPadding(dp(8), dp(16), dp(8), 0) })
         for (j in filtre) liste.addView(TextView(this).apply { text = j.texte(); textSize = 15f; setTextColor(Color.parseColor("#263238")); setPadding(dp(14), dp(10), dp(14), dp(10))
             background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(14).toFloat() }
-            setOnClickListener { partagerJour(j) } }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+            setOnClickListener { partagerJour(j) }
+            setOnLongClickListener { supprimerTraceJour(j); true } }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
     }
 
     private fun envoyer(t: String) { try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, t), T.t("j_part"))) } catch (_: Exception) {} }
     private fun tags(j: Jour) = j.lieux.joinToString(" ") { "#" + it.substringBefore(",").replace(Regex("[^\\p{L}\\p{N}]"), "") }.trim()
+    private fun supprimerTraceJour(j: Jour) {
+        if (TraceService.actif) { Toast.makeText(this, "Arrête d'abord la trace en cours.", Toast.LENGTH_LONG).show(); return }
+        val n = Trace.compterJour(this, j.cle)
+        if (n == 0) { Toast.makeText(this, "Pas de trace GPS ce jour-là.", Toast.LENGTH_SHORT).show(); return }
+        AlertDialog.Builder(this).setTitle("🗑 Supprimer la trace du ${j.cle} ?")
+            .setMessage("$n points de trace seront effacés.\n" + (if (j.photos.isEmpty()) "Ce jour n'a pas de photo : il disparaîtra du carnet." else "Les ${j.photos.size} photos ne sont pas touchées (seule la trace est effacée).") + "\nCette action est définitive.")
+            .setPositiveButton("Oui, supprimer la trace") { _, _ ->
+                val k = Trace.supprimerJour(this, j.cle)
+                Toast.makeText(this, "$k points supprimés", Toast.LENGTH_LONG).show()
+                calculer(); majEntete(); dessiner()
+            }.setNegativeButton("Non", null).show()
+    }
     private fun partagerJour(j: Jour) = envoyer(j.texte() + "\n" + tags(j))
     private fun partager() = envoyer(filtre.joinToString("\n\n") { it.texte() } + "\n\n— TRACE PHOTO par JM.DARGERE")
 

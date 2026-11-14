@@ -44,6 +44,29 @@ object Trace {
         f.appendText("<trkpt lat=\"%.6f\" lon=\"%.6f\">%s<time>%s</time></trkpt>\n".format(Locale.US, lat, lon, e, iso.get()!!.format(Date(t))))
     }
 
+    /** Nombre de points de trace d'un jour local (yyyy-MM-dd). */
+    fun compterJour(c: Context, cle: String): Int = lireTout(c).count { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(it.t)) == cle }
+
+    /** Supprime de la trace (seulement) les points d'un jour local. Les photos ne sont pas touchées. Retourne le nombre de points supprimés. */
+    fun supprimerJour(c: Context, cle: String): Int {
+        val jf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        var n = 0
+        dir(c).listFiles { x -> x.name.endsWith(".gpx") }?.forEach { f ->
+            try {
+                val lignes = f.readLines(); var touche = false; var reste = 0
+                val sortie = lignes.filter { l ->
+                    val m = rx.find(l)
+                    if (m == null) true else {
+                        val t = try { iso.get()!!.parse(m.groupValues[4])!!.time } catch (_: Exception) { 0L }
+                        if (jf.format(Date(t)) == cle) { n++; touche = true; false } else { reste++; true }
+                    }
+                }
+                if (touche) { if (reste == 0) f.delete() else f.writeText(sortie.joinToString("\n") + "\n") }
+            } catch (_: Exception) {}
+        }
+        return n
+    }
+
     fun lireFichierCompte(f: File): Int = try { rx.findAll(f.readText()).count() } catch (_: Exception) { 0 }
 
     fun fermer(f: File) {
