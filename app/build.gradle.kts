@@ -10,8 +10,8 @@ android {
         applicationId = "com.jmdargere.tracephoto"
         minSdk = 29
         targetSdk = 34
-        versionCode = 17
-        versionName = "3.3"
+        versionCode = 18
+        versionName = "3.4"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

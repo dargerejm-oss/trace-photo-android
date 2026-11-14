@@ -95,6 +95,7 @@ class MainActivity : Activity() {
 
         root.addView(Button(this).apply { text = T.t("b_marque"); isAllCaps = false; textSize = 16f; setTextColor(Color.WHITE); background = fond(Color.parseColor("#F9A825")); setOnClickListener { marquerIci() } }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(8) })
         root.addView(Button(this).apply { text = T.t("b_histo"); isAllCaps = false; setOnClickListener { montrerHisto() } })
+        root.addView(Button(this).apply { text = "🧹 Remise à zéro (choisir ce qu'on efface)"; isAllCaps = false; setOnClickListener { remiseAZero() } })
         carte = txt("", 14f).apply { setPadding(dp(4), dp(18), dp(4), dp(0)) }
         root.addView(carte)
         btnGeo = gros(T.t("geo"), Color.parseColor("#1565C0")).also { it.setOnClickListener { lancer(false) } }
@@ -214,6 +215,30 @@ class MainActivity : Activity() {
                 if (d == null) { Toast.makeText(this, T.t("calib_err"), Toast.LENGTH_LONG).show() }
                 else { etDecal.setText(d.toString()); sauveReglages(); Toast.makeText(this, T.f("calib_ok", d), Toast.LENGTH_LONG).show() } }
             .setNegativeButton("✕", null).show()
+    }
+
+    /** Remise à zéro : l'utilisateur coche ce qu'il veut effacer. Les réglages, les photos de la galerie et la calibration ne sont jamais touchés. */
+    private fun remiseAZero() {
+        if (TraceService.actif) { Toast.makeText(this, "Arrête d'abord la trace en cours.", Toast.LENGTH_LONG).show(); return }
+        val nbTraces = Trace.dir(this).listFiles { x -> x.name.endsWith(".gpx") }?.size ?: 0
+        val noms = arrayOf("🥾 Les traces GPS ($nbTraces)", "📔 Le carnet : liste des photos importées", "📍 Les repères « Marquer ici »", "📋 L'historique de la trace", "🗺 Les anciennes cartes (Documents/TRACE_PHOTO)")
+        val cases = noms.map { n -> CheckBox(this).apply { text = n; textSize = 16f; isChecked = false } }
+        val lay = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(12), dp(20), 0)
+            addView(TextView(this@MainActivity).apply { text = "Coche ce que tu veux effacer. Tes photos de la galerie et tes réglages (horloge, album, trace programmée) ne sont pas touchés."; textSize = 14f })
+            cases.forEach { addView(it) } }
+        android.app.AlertDialog.Builder(this).setTitle("🧹 Remise à zéro").setView(lay)
+            .setPositiveButton("EFFACER") { _, _ ->
+                val c = cases.map { it.isChecked }
+                if (c.none { it }) { Toast.makeText(this, "Rien n'est coché.", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
+                if (c[0]) Trace.dir(this).listFiles { x -> x.name.endsWith(".gpx") }?.forEach { it.delete() }
+                if (c[1]) java.io.File(filesDir, "importes.tsv").delete()
+                if (c[2]) java.io.File(filesDir, "marques.tsv").delete()
+                if (c[3]) java.io.File(filesDir, "evenements.log").delete()
+                if (c[4]) try { contentResolver.delete(android.provider.MediaStore.Files.getContentUri("external"), "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH} = ?", arrayOf("photos_%.gpx", "Documents/TRACE_PHOTO/")) } catch (_: Exception) {}
+                tick()
+                Toast.makeText(this, "✔ Remise à zéro faite", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Annuler", null).show()
     }
 
     private fun hg(i: Int, n: Int) { val pct = if (n > 0) i * 100.0 / n else 0.0; sablier.evaluateJavascript("setP(%.1f,true)".format(java.util.Locale.US, pct), null) }
