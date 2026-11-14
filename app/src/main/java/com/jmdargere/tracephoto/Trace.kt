@@ -128,6 +128,7 @@ object Trace {
         val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"TRACE PHOTO par JM.DARGERE\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
         for (w in l) sb.append("<wpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time><name>%s</name><desc>%s</desc></wpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t)), esc(heure.format(Date(w.t))), esc((w.desc + "\n" + w.nom).trim())))
         for ((j, v) in l.groupBy { jour.format(Date(it.t)) }) {
+            if (v.size < 2 || !trace.isEmpty()) continue
             sb.append("<trk><name>%s</name><trkseg>\n".format(esc(j)))
             for (w in v) sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t))))
             sb.append("</trkseg></trk>\n")
