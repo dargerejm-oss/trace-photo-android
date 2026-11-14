@@ -18,7 +18,7 @@ class Bilan {
     val wpts = ArrayList<Wp>()
     val lieux = java.util.TreeMap<String, Int>()
     val aSupprimer = ArrayList<Pair<Uri, Uri>>()   // (original sur la carte, copie vérifiée sur le téléphone)
-    var supprimees = 0; var echecSupp = 0
+    var supprimees = 0; var echecSupp = 0; var errSupp = ""; var copieAbsente = 0
     var estimees = 0; var importees = 0; var deja = 0; var avecPos = 0; var sansPos = 0; var sansDate = 0; var verifiees = 0; var erreurs = 0; var raw = 0
 }
 
@@ -210,13 +210,24 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
     }
 
     /** Supprime de la carte les JPEG dont la copie a été vérifiée (les RAW ne sont jamais touchés). */
+    /** Sans rien importer : retrouve sur la carte les JPEG déjà copiés (et vérifiés) pour proposer leur suppression. */
+    fun preparerSuppression(fichiers: List<Fichier>): Bilan {
+        val b = Bilan(); val faits = Journal.cles(c)
+        for (f in fichiers) {
+            val d = faits["${f.nom}|${f.taille}|${f.modif}"] ?: continue
+            try { val u = Uri.parse(d); if (cr.openFileDescriptor(u, "r")?.use { it.statSize > 1000 } == true) b.aSupprimer.add(DocumentsContract.buildDocumentUriUsingTree(racine, f.docId) to u) } catch (_: Exception) {}
+        }
+        return b
+    }
+
     fun supprimerOriginaux(b: Bilan, progres: (Int, Int) -> Unit) {
         for ((i, p) in b.aSupprimer.withIndex()) {
             progres(i + 1, b.aSupprimer.size)
             try {
                 val copieOk = cr.openFileDescriptor(p.second, "r")?.use { it.statSize > 1000 } == true
-                if (copieOk && DocumentsContract.deleteDocument(cr, p.first)) b.supprimees++ else b.echecSupp++
-            } catch (_: Exception) { b.echecSupp++ }
+                if (!copieOk) { b.copieAbsente++; b.echecSupp++; continue }
+                if (DocumentsContract.deleteDocument(cr, p.first)) b.supprimees++ else { b.echecSupp++; if (b.errSupp.isEmpty()) b.errSupp = "refus du système (deleteDocument=false)" }
+            } catch (e: Exception) { b.echecSupp++; if (b.errSupp.isEmpty()) b.errSupp = (e.javaClass.simpleName + ": " + (e.message ?: "")).take(160) }
         }
     }
 

@@ -112,6 +112,7 @@ class MainActivity : Activity() {
         root.addView(btnDossier)
         btnCarteVue = gros(T.t("b_carte"), Color.parseColor("#00838F")).apply { visibility = View.GONE; setOnClickListener { ouvrirCarte() } }
         root.addView(btnCarteVue)
+        root.addView(gros(T.t("b_nettoie"), Color.parseColor("#B71C1C")).apply { setOnClickListener { nettoyerCarte() } })
         root.addView(gros(T.t("b_journal"), Color.parseColor("#EF6C00")).apply { setOnClickListener { startActivity(Intent(this@MainActivity, JournalActivity::class.java)) } })
         root.addView(txt(T.t("reglages"), 18f, Color.parseColor("#1565C0")).apply { typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(26), 0, dp(4)) })
         root.addView(txt(T.t("fuseau"), 13f))
@@ -318,7 +319,10 @@ class MainActivity : Activity() {
 
     private fun proposerSuppression() {
         val b = dernierBilan ?: return
-        if (!cbSup.isChecked || b.aSupprimer.isEmpty() || dernierGeo?.annule == true) return
+        if (!cbSup.isChecked || b.aSupprimer.isEmpty() || dernierGeo?.annule == true) {
+            val why = when { !cbSup.isChecked -> T.t("sup_why_opt"); dernierGeo?.annule == true -> T.t("sup_why_stop"); else -> T.t("sup_why_rien") }
+            bilanTxt.text = bilanTxt.text.toString() + "\n\nℹ " + why; return
+        }
         android.app.AlertDialog.Builder(this).setTitle(T.t("sup_titre")).setMessage(T.f("sup_msg", b.aSupprimer.size))
             .setPositiveButton(T.t("sup_oui")) { _, _ ->
                 val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
@@ -330,6 +334,24 @@ class MainActivity : Activity() {
             }.setNegativeButton(T.t("sup_non"), null).setCancelable(false).show()
     }
 
+    private fun nettoyerCarte() {
+        if (enCours) return
+        val s = sp.getString("arbre", null)
+        if (s == null || !accessible(Uri.parse(s))) { Toast.makeText(this, T.t("carte_choisir"), Toast.LENGTH_LONG).show(); lancer(true); return }
+        enCours = true; carte.text = T.t("recherche"); barre.visibility = View.VISIBLE; barre.isIndeterminate = true
+        val u = Uri.parse(s)
+        val g = Geoloc(this, u, 0, 0, false, false, false, true, false, false, "Fuji X4", false, false)
+        Thread {
+            val b = try { g.preparerSuppression(g.lister()) } catch (_: Exception) { Bilan() }
+            h.post {
+                enCours = false; barre.visibility = View.GONE; carte.text = ""
+                dernierGeo = g; dernierBilan = b
+                bilanTxt.text = T.f("sup_trouves", b.aSupprimer.size); bilanTxt.visibility = View.VISIBLE
+                proposerSuppression()
+            }
+        }.start()
+    }
+
     private fun supprimerMaintenant() {
         val g = dernierGeo ?: return; val b = dernierBilan ?: return
         enCours = true; barre.visibility = View.VISIBLE; sablier.visibility = View.VISIBLE; barre.isIndeterminate = false; barre.max = b.aSupprimer.size
@@ -338,7 +360,7 @@ class MainActivity : Activity() {
             h.post {
                 enCours = false; barre.visibility = View.GONE; sablier.visibility = View.GONE; carte.text = ""
                 var t = bilanTxt.text.toString() + T.f("bilan_sup", b.supprimees)
-                if (b.echecSupp > 0) t += T.f("bilan_sup_echec", b.echecSupp)
+                if (b.echecSupp > 0) t += T.f("bilan_sup_echec", b.echecSupp) + (if (b.errSupp.isNotEmpty()) "\n⚠ " + b.errSupp else "") + (if (b.copieAbsente > 0) "\n⚠ " + T.f("sup_copie_abs", b.copieAbsente) else "")
                 bilanTxt.text = t; b.aSupprimer.clear()
                 banniere.text = T.t("fini"); banniere.background = fond(Color.parseColor("#2E7D32"))
                 try { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90).startTone(ToneGenerator.TONE_PROP_ACK, 600) } catch (_: Exception) {}
