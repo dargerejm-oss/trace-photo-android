@@ -181,18 +181,38 @@ class MainActivity : Activity() {
         if (naif == null) { Toast.makeText(this, T.t("calib_err"), Toast.LENGTH_LONG).show(); return }
         val img = ImageView(this).apply { adjustViewBounds = true; setImageURI(u) }
         val et = EditText(this).apply { hint = "HH:MM:SS"; inputType = InputType.TYPE_CLASS_DATETIME; setSingleLine() }
+        val hms = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+        val apercu = TextView(this).apply { textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, 0) }
+        // lit "14:32:05", "14 32 05", "143205" ou "14:32" (secondes = 0)
+        fun lire(sx: String): java.time.LocalTime? {
+            val n = Regex("\\d+").findAll(sx).map { it.value }.toList()
+            val v = if (n.size == 1 && n[0].length == 6) listOf(n[0].substring(0, 2), n[0].substring(2, 4), n[0].substring(4, 6)) else n
+            if (v.size < 2) return null
+            return try { java.time.LocalTime.of(v[0].toInt(), v[1].toInt(), if (v.size > 2) v[2].toInt() else 0) } catch (_: Exception) { null }
+        }
+        fun ecart(sx: String): Long? {
+            val saisi = lire(sx) ?: return null
+            var d = java.time.Duration.between(saisi, naif.toLocalTime()).seconds
+            if (d > 43200) d -= 86400; if (d < -43200) d += 86400
+            return d
+        }
+        et.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            override fun afterTextChanged(x: android.text.Editable?) {
+                val d = ecart(x.toString())
+                apercu.text = if (d == null) "" else "Écart calculé : %d s (%d min %02d s)".format(d, Math.abs(d) / 60, Math.abs(d) % 60)
+            }
+        })
         val lay = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0)
-            addView(img, LinearLayout.LayoutParams(-1, dp(220))); addView(TextView(this@MainActivity).apply { text = T.f("calib_2", naif.toLocalTime().toString()) }); addView(et) }
+            addView(img, LinearLayout.LayoutParams(-1, dp(220)))
+            addView(TextView(this@MainActivity).apply { text = T.f("calib_2", naif.toLocalTime().format(hms)); textSize = 16f })
+            addView(et); addView(apercu) }
         android.app.AlertDialog.Builder(this).setTitle(T.t("calib")).setView(lay)
             .setPositiveButton("OK") { _, _ ->
-                try {
-                    val p = et.text.toString().trim().split(":").map { it.toInt() }
-                    val saisi = java.time.LocalTime.of(p[0], p[1], if (p.size > 2) p[2] else 0)
-                    var d = java.time.Duration.between(saisi, naif.toLocalTime()).seconds
-                    if (d > 43200) d -= 86400; if (d < -43200) d += 86400
-                    etDecal.setText(d.toString()); sauveReglages()
-                    Toast.makeText(this, T.f("calib_ok", d), Toast.LENGTH_LONG).show()
-                } catch (_: Exception) { Toast.makeText(this, T.t("calib_err"), Toast.LENGTH_LONG).show() } }
+                val d = ecart(et.text.toString())
+                if (d == null) { Toast.makeText(this, T.t("calib_err"), Toast.LENGTH_LONG).show() }
+                else { etDecal.setText(d.toString()); sauveReglages(); Toast.makeText(this, T.f("calib_ok", d), Toast.LENGTH_LONG).show() } }
             .setNegativeButton("✕", null).show()
     }
 
