@@ -33,6 +33,7 @@ class AlbumActivity : Activity() {
         setBackgroundColor(Color.parseColor(c)); setOnClickListener { f() }
     }
 
+    private val R_URI = 0x7f0a0001
     private var nomAlbum: String? = null
     private val dossier get() = java.io.File(filesDir, "albums").apply { mkdirs() }
     private fun sur(n: String) = n.replace(Regex("[^A-Za-z0-9À-ÿ _-]"), "").trim().replace(' ', '_').ifEmpty { "album" }
@@ -151,22 +152,26 @@ class AlbumActivity : Activity() {
             override fun getItemId(i: Int) = i.toLong()
             override fun getView(i: Int, v: View?, p: ViewGroup?): View {
                 val e = photos[i]
-                val cell = (v as? FrameLayout) ?: FrameLayout(this@AlbumActivity).apply {
-                    layoutParams = AbsListView.LayoutParams(-1, dp(120))
-                    addView(ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP; tag = "img" }, FrameLayout.LayoutParams(-1, -1))
-                    addView(TextView(context).apply { tag = "txt"; textSize = 10f; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#99000000")); setPadding(dp(3), 0, dp(3), 0) },
-                        FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-                    addView(TextView(context).apply { tag = "chk"; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.WHITE) },
-                        FrameLayout.LayoutParams(dp(26), dp(26), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(3), dp(3), 0) })
-                }
-                val img = cell.findViewWithTag<ImageView>("img")
-                val chk = cell.findViewWithTag<TextView>("chk")
-                cell.findViewWithTag<TextView>("txt").text = SimpleDateFormat("dd/MM HH:mm", Locale.FRENCH).format(e.t)
+                var h = v?.tag as? Array<View>
+                val cell: View
+                if (v == null || h == null) {
+                    val img = ImageView(this@AlbumActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+                    val txt = TextView(this@AlbumActivity).apply { textSize = 10f; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#99000000")); setPadding(dp(3), 0, dp(3), 0) }
+                    val chk = TextView(this@AlbumActivity).apply { textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.WHITE) }
+                    val f = FrameLayout(this@AlbumActivity).apply { layoutParams = AbsListView.LayoutParams(-1, dp(120)) }
+                    f.addView(img, FrameLayout.LayoutParams(-1, -1))
+                    f.addView(txt, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+                    f.addView(chk, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(3), dp(3), 0) })
+                    h = arrayOf(img, txt, chk)
+                    f.tag = h; cell = f
+                } else cell = v
+                val img = h!![0] as ImageView; val txt = h[1] as TextView; val chk = h[2] as TextView
+                txt.text = SimpleDateFormat("dd/MM HH:mm", Locale.FRENCH).format(e.t)
                 val on = e.uri in choisies
                 chk.text = if (on) "✓" else ""
                 chk.setBackgroundColor(Color.parseColor(if (on) "#2E7D32" else "#66000000"))
                 img.alpha = if (on) 1f else 0.4f
-                img.tag = e.uri
+                img.setTag(R_URI, e.uri)
                 val bm = cache.get(e.uri)
                 if (bm != null) img.setImageBitmap(bm) else {
                     img.setImageDrawable(null)
@@ -174,7 +179,7 @@ class AlbumActivity : Activity() {
                         try {
                             val t = contentResolver.loadThumbnail(Uri.parse(e.uri), Size(256, 256), null)
                             cache.put(e.uri, t)
-                            runOnUiThread { if (img.tag == e.uri) img.setImageBitmap(t) }
+                            runOnUiThread { if (img.getTag(R_URI) == e.uri) img.setImageBitmap(t) }
                         } catch (_: Exception) {}
                     }
                 }
