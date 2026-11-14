@@ -39,6 +39,8 @@ class MainActivity : Activity() {
     private lateinit var etDecal: EditText
     private lateinit var cbSans: CheckBox
     private lateinit var cbVois: CheckBox
+    private lateinit var cbRappel: CheckBox
+    private lateinit var sablier: android.webkit.WebView
     private lateinit var cbEco: CheckBox
     private lateinit var cbParApp: CheckBox
     private lateinit var etAlbum: EditText
@@ -96,6 +98,8 @@ class MainActivity : Activity() {
 
         barre = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { visibility = View.GONE; max = 100 }
         root.addView(barre, LinearLayout.LayoutParams(-1, dp(26)).apply { topMargin = dp(10) })
+        sablier = android.webkit.WebView(this).apply { visibility = View.GONE; setBackgroundColor(0); settings.javaScriptEnabled = true; loadUrl("file:///android_asset/hourglass.html") }
+        root.addView(sablier, LinearLayout.LayoutParams(-1, dp(250)))
         btnStop = Button(this).apply { text = T.t("stop_trt"); setTextColor(Color.WHITE); background = fond(Color.parseColor("#B71C1C")); visibility = View.GONE
             setOnClickListener { travail?.annule = true } }
         root.addView(btnStop, LinearLayout.LayoutParams(-1, dp(56)))
@@ -108,6 +112,7 @@ class MainActivity : Activity() {
         root.addView(btnDossier)
         btnCarteVue = gros(T.t("b_carte"), Color.parseColor("#00838F")).apply { visibility = View.GONE; setOnClickListener { ouvrirCarte() } }
         root.addView(btnCarteVue)
+        root.addView(gros(T.t("b_journal"), Color.parseColor("#EF6C00")).apply { setOnClickListener { startActivity(Intent(this@MainActivity, JournalActivity::class.java)) } })
         root.addView(txt(T.t("reglages"), 18f, Color.parseColor("#1565C0")).apply { typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(26), 0, dp(4)) })
         root.addView(txt(T.t("fuseau"), 13f))
         etFuseau = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED or InputType.TYPE_NUMBER_FLAG_DECIMAL; setText(sp.getString("fuseau", "")) }
@@ -126,9 +131,12 @@ class MainActivity : Activity() {
         cbParApp = CheckBox(this).apply { text = T.t("o_parapp"); isChecked = sp.getBoolean("parapp", false) }; root.addView(cbParApp)
         root.addView(txt(T.t("album"), 13f))
         etAlbum = EditText(this).apply { setText(sp.getString("album", "Fuji X4")); setSingleLine() }; root.addView(etAlbum)
+        cbRappel = CheckBox(this).apply { text = T.t("o_rappel"); isChecked = sp.getBoolean("rappel", false)
+            setOnCheckedChangeListener { _, on -> sp.edit().putBoolean("rappel", on).apply(); Rappel.armer(this@MainActivity, on) } }; root.addView(cbRappel)
         cbAuto = CheckBox(this).apply { text = T.t("o_auto"); isChecked = sp.getBoolean("auto", false) }; root.addView(cbAuto)
         root.addView(Button(this).apply { text = T.t("batt"); isAllCaps = false
             setOnClickListener { try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {} } })
+        onNewIntent(intent)
         root.addView(txt(T.t("garde2") + "\n" + T.t("credit"), 12f, Color.parseColor("#546E7A")).apply { setPadding(0, dp(12), 0, 0) })
     }
 
@@ -174,6 +182,8 @@ class MainActivity : Activity() {
             .setNegativeButton("✕", null).show()
     }
 
+    private fun hg(i: Int, n: Int) { val pct = if (n > 0) i * 100.0 / n else 0.0; sablier.evaluateJavascript("setP(%.1f,true)".format(java.util.Locale.US, pct), null) }
+
     private var autoFait = false
     private fun montrerCrash() {
         val f = java.io.File(filesDir, "crash.txt"); if (!f.exists()) return
@@ -212,6 +222,10 @@ class MainActivity : Activity() {
     }
 
     // ---- trace ----
+    override fun onNewIntent(i: Intent?) {
+        super.onNewIntent(i)
+        if (i?.action == "com.jmdargere.tracephoto.DEMARRER") { i.action = null; if (!TraceService.actif) h.postDelayed({ basculeTrace() }, 400) }
+    }
     private fun basculeTrace() {
         if (TraceService.actif) { startService(Intent(this, TraceService::class.java).setAction("STOP")); h.postDelayed({ tick() }, 800); return }
         val need = ArrayList<String>()
@@ -259,7 +273,7 @@ class MainActivity : Activity() {
     private fun demarreTri(u: Uri) {
         enCours = true
         banniere.visibility = View.GONE; bilanTxt.visibility = View.GONE
-        barre.visibility = View.VISIBLE; barre.isIndeterminate = true; btnStop.visibility = View.VISIBLE
+        barre.visibility = View.VISIBLE; sablier.visibility = View.VISIBLE; barre.isIndeterminate = true; btnStop.visibility = View.VISIBLE
         btnGeo.isEnabled = false
         carte.text = T.t("lecture")
         val auto = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000
@@ -267,7 +281,7 @@ class MainActivity : Activity() {
         val offSec = if (fz != null) (fz * 3600).toInt() else auto
         val dec = etDecal.text.toString().trim().toIntOrNull() ?: 0
         if (TraceService.actif) { startService(Intent(this, TraceService::class.java).setAction("STOP")) }
-        val g = Geoloc(this, u, offSec, dec, cbLieu.isChecked, cbRen.isChecked, cbCoord.isChecked, cbSans.isChecked, cbVois.isChecked, etAlbum.text.toString().trim().ifBlank { "Fuji X4" }, cbParApp.isChecked, Lieux.disponible(this)); travail = g; dernierGeo = g; dernierBilan = null
+        val g = Geoloc(this, u, offSec, dec, cbLieu.isChecked, cbRen.isChecked, cbCoord.isChecked, cbSans.isChecked, fz == null, cbVois.isChecked, etAlbum.text.toString().trim().ifBlank { "Fuji X4" }, cbParApp.isChecked, Lieux.disponible(this)); travail = g; dernierGeo = g; dernierBilan = null
         dernierArbre = u; dernierVisu = null; btnCarteVue.visibility = View.GONE
         Thread {
             if (TraceService.actif) Thread.sleep(1500)
@@ -279,7 +293,7 @@ class MainActivity : Activity() {
             val liste = g.lister()
             if (liste.isEmpty()) { h.post { fin(null, T.t("pas_photo"), "#E65100") }; return@Thread }
             h.post { barre.isIndeterminate = false; barre.max = liste.size }
-            val b = g.traiter(liste, pts) { i, n -> h.post { barre.progress = i; carte.text = T.f("traite", i, n) } }
+            val b = g.traiter(liste, pts) { i, n -> h.post { barre.progress = i; hg(i, n); carte.text = T.f("traite", i, n) } }
             dernierVisu = Trace.exporterVisu(this, pts, b.wpts)
             h.post { fin(b, T.t(if (g.annule) "arrete" else "fini"), if (g.annule) "#E65100" else "#2E7D32") }
         }.start()
@@ -318,11 +332,11 @@ class MainActivity : Activity() {
 
     private fun supprimerMaintenant() {
         val g = dernierGeo ?: return; val b = dernierBilan ?: return
-        enCours = true; barre.visibility = View.VISIBLE; barre.isIndeterminate = false; barre.max = b.aSupprimer.size
+        enCours = true; barre.visibility = View.VISIBLE; sablier.visibility = View.VISIBLE; barre.isIndeterminate = false; barre.max = b.aSupprimer.size
         Thread {
-            g.supprimerOriginaux(b) { i, n -> h.post { barre.progress = i; carte.text = T.f("traite", i, n) } }
+            g.supprimerOriginaux(b) { i, n -> h.post { barre.progress = i; hg(i, n); carte.text = T.f("traite", i, n) } }
             h.post {
-                enCours = false; barre.visibility = View.GONE; carte.text = ""
+                enCours = false; barre.visibility = View.GONE; sablier.visibility = View.GONE; carte.text = ""
                 var t = bilanTxt.text.toString() + T.f("bilan_sup", b.supprimees)
                 if (b.echecSupp > 0) t += T.f("bilan_sup_echec", b.echecSupp)
                 bilanTxt.text = t; b.aSupprimer.clear()
@@ -333,7 +347,7 @@ class MainActivity : Activity() {
     }
 
     private fun fin(b: Bilan?, titre: String, couleur: String) {
-        enCours = false; btnGeo.isEnabled = true; barre.visibility = View.GONE; btnStop.visibility = View.GONE
+        enCours = false; btnGeo.isEnabled = true; barre.visibility = View.GONE; sablier.visibility = View.GONE; btnStop.visibility = View.GONE
         banniere.text = titre; banniere.background = fond(Color.parseColor(couleur)); banniere.visibility = View.VISIBLE
         if (b != null) {
             var t = T.f("bilan", b.importees, b.avecPos, b.verifiees, b.sansPos, b.deja, b.sansDate, b.erreurs)

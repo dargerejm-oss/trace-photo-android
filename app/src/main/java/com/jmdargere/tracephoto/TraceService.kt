@@ -32,6 +32,7 @@ class TraceService : Service() {
     private val ecoute = LocationListener { l: Location -> noter(l) }
     private var dernier: Location? = null
     private var immobile = 0
+    private var dernierTz = Int.MIN_VALUE
     private var lent = false
     private var eco = true
 
@@ -40,6 +41,9 @@ class TraceService : Service() {
         if (l.hasAccuracy() && l.accuracy > 150f) return
         Trace.ajouter(f, l.latitude, l.longitude, if (l.hasAltitude()) l.altitude else null, l.time)
         points++; dernierFix = System.currentTimeMillis()
+        try { val off = java.util.TimeZone.getDefault().getOffset(l.time) / 1000
+            val tz = java.io.File(filesDir, "tz.tsv")
+            if (off != dernierTz) { dernierTz = off; tz.appendText("${l.time}\t$off\n") } } catch (_: Exception) {}
         if (eco) {
             val d = dernier?.distanceTo(l) ?: 100f
             dernier = l

@@ -1,0 +1,32 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;background:transparent;text-align:center;font-family:sans-serif}
+#w{display:inline-block;transition:transform .8s}.f{transform:rotate(180deg)}
+#ptxt{font-size:30px;font-weight:bold;margin-top:2px}
+.hgs{stroke-dasharray:3 4;animation:fall .5s linear infinite}@keyframes fall{to{stroke-dashoffset:-14}}
+svg{width:120px;height:176px}</style></head><body>
+<div id="w"><svg viewBox="0 0 150 220"><defs>
+<linearGradient id="hgGl" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity=".75"/><stop offset=".25" stop-color="#cfe9f5" stop-opacity=".25"/><stop offset=".75" stop-color="#9fd0e8" stop-opacity=".18"/><stop offset="1" stop-color="#fff" stop-opacity=".6"/></linearGradient>
+<linearGradient id="hgWd" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#a1672f"/><stop offset=".5" stop-color="#7b4a1d"/><stop offset="1" stop-color="#4e2c0e"/></linearGradient>
+<radialGradient id="hgSh" cx=".35" cy=".3" r=".9"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></radialGradient>
+<clipPath id="hgcT"><path d="M30 28 H120 C120 70 88 92 80 110 H70 C62 92 30 70 30 28Z"/></clipPath>
+<clipPath id="hgcB"><path d="M70 110 H80 C88 128 120 150 120 192 H30 C30 150 62 128 70 110Z"/></clipPath></defs>
+<ellipse cx="75" cy="212" rx="62" ry="7" fill="#000" opacity=".22"/>
+<rect x="16" y="196" width="118" height="16" rx="6" fill="url(#hgWd)"/>
+<g clip-path="url(#hgcT)"><rect id="hgT" x="20" y="28" width="110" height="82" fill="#E53935"/><rect id="hgTh" x="20" y="28" width="110" height="82" fill="url(#hgSh)"/></g>
+<g clip-path="url(#hgcB)"><path id="hgB" d="" fill="#E53935"/><path id="hgBh" d="" fill="url(#hgSh)"/></g>
+<line id="hgS" class="hgs" x1="75" x2="75" y1="108" y2="108" stroke="#E53935" stroke-width="2.6"/>
+<path d="M30 28 H120 C120 70 88 92 80 110 H70 C62 92 30 70 30 28Z M70 110 H80 C88 128 120 150 120 192 H30 C30 150 62 128 70 110Z" fill="url(#hgGl)" stroke="#8fb9cc" stroke-width="2.5"/>
+<path d="M40 36 C42 66 60 84 66 104" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".75"/>
+<rect x="18" y="14" width="114" height="16" rx="6" fill="url(#hgWd)"/></svg></div>
+<div id="ptxt">0 %</div>
+<script>
+function $(i){return document.getElementById(i)}
+function hgCol(p){var a=[[0,[229,57,53]],[.45,[251,140,0]],[.75,[253,216,53]],[1,[67,160,71]]];for(var i=1;i<a.length;i++)if(p<=a[i][0]){var x=a[i-1],y=a[i],k=(p-x[0])/(y[0]-x[0]);return"rgb("+x[1].map(function(v,j){return Math.round(v+(y[1][j]-v)*k)}).join(",")+")"}return"rgb(67,160,71)"}
+function setP(pct,run){var p=Math.max(0,Math.min(1,pct/100)),c=hgCol(p),h=82*(1-p);
+$("hgT").setAttribute("y",110-h);$("hgT").setAttribute("height",h);$("hgT").setAttribute("fill",c);$("hgTh").setAttribute("y",110-h);$("hgTh").setAttribute("height",h);
+var d="M20 192 H130 V"+(192-58*p)+" Q100 "+(192-58*p)+" 75 "+(192-70*p-6)+" Q50 "+(192-58*p)+" 20 "+(192-58*p)+"Z";
+$("hgB").setAttribute("d",d);$("hgB").setAttribute("fill",c);$("hgBh").setAttribute("d",d);
+$("hgS").setAttribute("y2",run&&p<1&&p>0?(192-70*p-6):108);$("hgS").setAttribute("stroke",c);
+$("ptxt").textContent=Math.round(pct)+" %";$("ptxt").style.color=c}
+setP(0,false)
+</script></body></html>

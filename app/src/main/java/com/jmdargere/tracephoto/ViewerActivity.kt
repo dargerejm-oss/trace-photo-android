@@ -23,22 +23,32 @@ import java.util.Locale
 class ViewerActivity : Activity() {
     private val h = Handler(Looper.getMainLooper())
     private lateinit var liste: List<Entree>
+    private var toutes: List<Entree> = emptyList()
+    private var adapt: BaseAdapter? = null
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        liste = Journal.lire(this).filter { it.jpeg }.reversed()
+        toutes = Journal.lire(this).filter { it.jpeg }.reversed(); liste = toutes
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#ECEFF1")) }
         val n = liste.size; val ok = liste.count { it.lat != null }
         root.addView(TextView(this).apply {
             text = "🖼 " + T.f("v_titre", n, ok); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#263238")); setPadding(dp(14), dp(34), dp(14), dp(12))
         })
+        val rech = EditText(this).apply { hint = "🔍 " + T.t("j_rech"); setSingleLine(); setPadding(dp(14), dp(10), dp(14), dp(10)) }
+        root.addView(rech)
+        rech.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) { val q = s.toString().trim().lowercase(Locale.ROOT)
+                liste = if (q.isEmpty()) toutes else toutes.filter { (it.nom + " " + it.lieu).lowercase(Locale.ROOT).contains(q) }; adapt?.notifyDataSetChanged() }
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        })
         if (liste.isEmpty()) {
             root.addView(TextView(this).apply { text = T.t("v_vide"); textSize = 16f; setPadding(dp(16), dp(24), dp(16), 0) })
         } else {
             val g = GridView(this).apply { numColumns = 3; horizontalSpacing = dp(3); verticalSpacing = dp(3); setPadding(dp(3), dp(3), dp(3), dp(3)) }
-            g.adapter = object : BaseAdapter() {
+            adapt = object : BaseAdapter() {
                 override fun getCount() = liste.size
                 override fun getItem(p: Int) = liste[p]
                 override fun getItemId(p: Int) = p.toLong()
@@ -57,6 +67,7 @@ class ViewerActivity : Activity() {
                     return f
                 }
             }
+            g.adapter = adapt
             g.setOnItemClickListener { _, _, p, _ -> detail(p) }
             root.addView(g, LinearLayout.LayoutParams(-1, 0, 1f))
         }
@@ -82,10 +93,14 @@ class ViewerActivity : Activity() {
             val e = liste[i]; if (e.lat != null && e.lon != null) {
                 val u = Uri.parse(String.format(Locale.US, "geo:%f,%f?q=%f,%f(%s)", e.lat, e.lon, e.lat, e.lon, Uri.encode(e.nom)))
                 try { startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, u), T.t("carte_info"))) } catch (_: Exception) { Toast.makeText(this, T.t("pas_carte"), Toast.LENGTH_LONG).show() } } }
+        fun texteP(e: Entree): String { val l = e.lieu.removePrefix("≈ ").trim(); val tag = if (l.isNotEmpty()) "#" + l.substringBefore(",").replace(Regex("[^\\p{L}\\p{N}]"), "") else ""
+            return (if (l.isNotEmpty()) "📍 $l\n" else "") + (if (e.lat != null) String.format(Locale.US, "https://maps.google.com/?q=%f,%f", e.lat, e.lon) + "\n" else "") + tag }
+        val bPart = btn("📤", "#1565C0") { try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("image/jpeg").putExtra(Intent.EXTRA_STREAM, Uri.parse(liste[i].uri)).putExtra(Intent.EXTRA_TEXT, texteP(liste[i])).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), T.t("j_part"))) } catch (_: Exception) {} }
+        val bTag = btn("#", "#6A1B9A") { val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager; cm.setPrimaryClip(android.content.ClipData.newPlainText("lieu", texteP(liste[i]))); Toast.makeText(this, "✔", Toast.LENGTH_SHORT).show() }
         val bFerme = btn("✕", "#B71C1C") { d.dismiss() }
         val ligne = LinearLayout(d.context).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(8), dp(4), dp(8), dp(16)) }
-        ligne.addView(bPrec, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bCarte, LinearLayout.LayoutParams(0, dp(54), 3f))
-        ligne.addView(bSuiv, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bFerme, LinearLayout.LayoutParams(0, dp(54), 1f))
+        ligne.addView(bPrec, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bCarte, LinearLayout.LayoutParams(0, dp(54), 2.2f))
+        ligne.addView(bPart, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bTag, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bSuiv, LinearLayout.LayoutParams(0, dp(54), 1f)); ligne.addView(bFerme, LinearLayout.LayoutParams(0, dp(54), 1f))
         col.addView(img, LinearLayout.LayoutParams(-1, 0, 1f)); col.addView(txt); col.addView(ligne)
         maj = {
             val e = liste[i]

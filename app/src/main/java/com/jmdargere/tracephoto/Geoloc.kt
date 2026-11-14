@@ -48,7 +48,7 @@ object Journal {
 /** Copie les NOUVELLES photos de la carte vers le téléphone (album « Fuji X4 »), avec position + lieu. La carte n'est jamais modifiée. */
 class Geoloc(private val c: Context, private val racine: Uri, private val decalageUtcSec: Int, private val decalHorlogeSec: Int,
              private val ecrireLieu: Boolean, private val renommer: Boolean, private val coordNom: Boolean, private val sansPosition: Boolean,
-             private val voisine: Boolean, private val albumFixe: String, private val albumParAppareil: Boolean,
+             private val tzAuto: Boolean, private val voisine: Boolean, private val albumFixe: String, private val albumParAppareil: Boolean,
              @Volatile var lieuxOk: Boolean) {
     private class Info(val t: Long?, val make: String?, val model: String?)
     private val infos = HashMap<String, Info>()
@@ -84,11 +84,25 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
         return out
     }
 
+    private val tzs: List<Pair<Long, Int>> by lazy {
+        val o = ArrayList<Pair<Long, Int>>()
+        try { File(c.filesDir, "tz.tsv").forEachLine { l -> val p = l.split('\t'); if (p.size == 2) o.add(p[0].toLong() to p[1].toInt()) } } catch (_: Exception) {}
+        o.sortBy { it.first }; o
+    }
+    /** Fuseau du téléphone au moment de la prise de vue (si le champ « fuseau » est vide) ; sinon la valeur réglée. */
+    private fun tzPour(dt: LocalDateTime): Int {
+        if (!tzAuto || tzs.isEmpty()) return decalageUtcSec
+        val approx = dt.toEpochSecond(ZoneOffset.ofTotalSeconds(decalageUtcSec)) * 1000L
+        var r = tzs[0].second
+        for (e in tzs) { if (e.first <= approx + 86_400_000L) r = e.second else break }
+        return r
+    }
+
     private fun heure(exif: ExifInterface): Long? {
         val s = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: exif.getAttribute(ExifInterface.TAG_DATETIME) ?: return null
         return try {
             val dt = LocalDateTime.parse(s.trim(), fmt)
-            val off = exif.getAttribute("OffsetTimeOriginal")?.let { try { ZoneOffset.of(it.trim()).totalSeconds } catch (_: Exception) { null } } ?: decalageUtcSec
+            val off = exif.getAttribute("OffsetTimeOriginal")?.let { try { ZoneOffset.of(it.trim()).totalSeconds } catch (_: Exception) { null } } ?: tzPour(dt)
             (dt.toEpochSecond(ZoneOffset.ofTotalSeconds(off)) - decalHorlogeSec) * 1000L
         } catch (_: Exception) { null }
     }
