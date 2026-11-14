@@ -40,17 +40,42 @@ object Trace {
     }
 
     /** Copie la trace dans Documents/TRACE_PHOTO (visible depuis le gestionnaire de fichiers). */
-    fun exporter(c: Context, f: File) {
+    fun exporter(c: Context, f: File): android.net.Uri? {
         try {
-            if (Build.VERSION.SDK_INT < 29 || !f.exists()) return
+            if (Build.VERSION.SDK_INT < 29 || !f.exists()) return null
             val v = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, f.name)
                 put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/TRACE_PHOTO")
             }
-            val u = c.contentResolver.insert(MediaStore.Files.getContentUri("external"), v) ?: return
+            val u = c.contentResolver.insert(MediaStore.Files.getContentUri("external"), v) ?: return null
             c.contentResolver.openOutputStream(u)?.use { it.write(f.readBytes()) }
-        } catch (_: Exception) {}
+            return u
+        } catch (_: Exception) { return null }
+    }
+
+    private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;")
+
+    /** GPX de visualisation : la trace + un repère par photo géolocalisée. Retourne son Uri (Documents/TRACE_PHOTO). */
+    fun exporterVisu(c: Context, pts: List<Pt>, wpts: List<Wp>): android.net.Uri? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        val fmt = iso.get()!!
+        val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"TRACE PHOTO par JM.DARGERE\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        for (w in wpts) sb.append("<wpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time><name>%s</name><desc>%s</desc></wpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t)), esc(w.nom), esc(w.desc)))
+        sb.append("<trk><name>Trace</name><trkseg>\n")
+        for (p in pts) sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, p.lat, p.lon, fmt.format(Date(p.t))))
+        sb.append("</trkseg></trk></gpx>\n")
+        val n = "photos_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".gpx"
+        return try {
+            val v = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, n)
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/TRACE_PHOTO")
+            }
+            val u = c.contentResolver.insert(MediaStore.Files.getContentUri("external"), v)
+            u?.let { c.contentResolver.openOutputStream(it)?.use { o -> o.write(sb.toString().toByteArray()) } }
+            u
+        } catch (_: Exception) { null }
     }
 
     fun lireTout(c: Context): List<Pt> {

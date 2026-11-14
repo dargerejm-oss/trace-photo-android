@@ -9,7 +9,10 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+class Wp(val nom: String, val lat: Double, val lon: Double, val t: Long, val desc: String)
+
 class Bilan {
+    val wpts = ArrayList<Wp>()
     var geo = 0; var deja = 0; var hors = 0; var xmp = 0; var xmpExiste = 0; var sansDate = 0; var erreurs = 0; var renomme = 0
     val lieux = java.util.TreeMap<String, Int>()
 }
@@ -18,8 +21,8 @@ class Fichier(val parent: Uri, val docId: String, val nom: String)
 
 /** Cherche les photos du dossier choisi, lit l'heure de prise de vue et écrit la position issue de la trace. */
 class Geoloc(private val c: Context, private val racine: Uri, private val decalageUtcSec: Int, private val decalHorlogeSec: Int, private val remplacer: Boolean,
-             private val ecrireLieu: Boolean, private val renommer: Boolean, @Volatile var lieuxOk: Boolean) {
-    private class Groupe(val parent: Uri, val parentId: String, val base: String, var t: Long, var lieu: Lieu?)
+             private val ecrireLieu: Boolean, private val renommer: Boolean, private val coordNom: Boolean, @Volatile var lieuxOk: Boolean) {
+    private class Groupe(val parent: Uri, val parentId: String, val base: String, var t: Long, var lieu: Lieu?, val lat: Double, val lon: Double)
     private val groupes = LinkedHashMap<String, Groupe>()
     @Volatile var annule = false
     private val cr = c.contentResolver
@@ -86,9 +89,12 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
         val pos = Trace.position(pts, t!!)
         if (pos == null) { b.hors++; return }
         val lieu = if (lieuxOk) Lieux.chercher(c, pos.lat, pos.lon) else null
-        if (lieu != null) { b.lieux[lieu.texte()] = (b.lieux[lieu.texte()] ?: 0) + 1
+        if (lieu != null) b.lieux[lieu.texte()] = (b.lieux[lieu.texte()] ?: 0) + 1
+        if (lieu != null || coordNom) {
             val base = f.nom.substringBeforeLast('.')
-            groupes.getOrPut(DocumentsContract.getDocumentId(f.parent) + "/" + base) { Groupe(f.parent, DocumentsContract.getDocumentId(f.parent), base, t!!, lieu) } }
+            groupes.getOrPut(DocumentsContract.getDocumentId(f.parent) + "/" + base) { Groupe(f.parent, DocumentsContract.getDocumentId(f.parent), base, t!!, lieu, pos.lat, pos.lon) }
+        }
+        b.wpts.add(Wp(f.nom, pos.lat, pos.lon, t!!, lieu?.texte() ?: ""))
         if (e in jpg) {
             cr.openFileDescriptor(uri, "rw")!!.use { p ->
                 val ex = ExifInterface(p.fileDescriptor)
@@ -145,9 +151,9 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
         for (g in groupes.values) {
             if (annule) return
             if (dejaNomme.containsMatchIn(g.base)) continue
-            val l = g.lieu ?: continue
             val local = LocalDateTime.ofEpochSecond(g.t / 1000 + decalHorlogeSec + decalageUtcSec, 0, ZoneOffset.UTC)
-            val nouveau = fmtNom.format(local) + "_" + l.court() + "_" + g.base
+            val coord = if (coordNom) "_" + "%s%.4f_%s%.4f".format(Locale.US, if (g.lat >= 0) "N" else "S", Math.abs(g.lat), if (g.lon >= 0) "E" else "W", Math.abs(g.lon)) else ""
+            val nouveau = fmtNom.format(local) + (if (g.lieu != null) "_" + g.lieu!!.court() else "") + coord + "_" + g.base
             val enf = DocumentsContract.buildChildDocumentsUriUsingTree(racine, g.parentId)
             val aRenommer = ArrayList<Pair<String, String>>()
             try {

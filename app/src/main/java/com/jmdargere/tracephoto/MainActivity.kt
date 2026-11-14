@@ -41,6 +41,11 @@ class MainActivity : Activity() {
     private lateinit var cbLieu: CheckBox
     private lateinit var cbRen: CheckBox
     private lateinit var cbAuto: CheckBox
+    private lateinit var cbCoord: CheckBox
+    private lateinit var btnDossier: Button
+    private lateinit var btnCarteVue: Button
+    private var dernierArbre: Uri? = null
+    private var dernierVisu: Uri? = null
     private lateinit var btnStop: Button
     private var travail: Geoloc? = null
     private var enCours = false
@@ -88,6 +93,10 @@ class MainActivity : Activity() {
         bilanTxt = txt("", 16f).apply { setPadding(dp(14), dp(10), dp(14), dp(10)); background = fond(Color.WHITE); visibility = View.GONE }
         root.addView(bilanTxt, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        btnDossier = gros(T.t("b_dossier"), Color.parseColor("#6A1B9A")).apply { visibility = View.GONE; setOnClickListener { ouvrirDossier() } }
+        root.addView(btnDossier)
+        btnCarteVue = gros(T.t("b_carte"), Color.parseColor("#00838F")).apply { visibility = View.GONE; setOnClickListener { ouvrirCarte() } }
+        root.addView(btnCarteVue)
         root.addView(txt(T.t("reglages"), 18f, Color.parseColor("#1565C0")).apply { typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(26), 0, dp(4)) })
         root.addView(txt(T.t("fuseau"), 13f))
         etFuseau = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED or InputType.TYPE_NUMBER_FLAG_DECIMAL; setText(sp.getString("fuseau", "")) }
@@ -99,6 +108,7 @@ class MainActivity : Activity() {
         root.addView(cbRemp)
         cbLieu = CheckBox(this).apply { text = T.t("o_lieu"); isChecked = sp.getBoolean("lieu", true) }; root.addView(cbLieu)
         cbRen = CheckBox(this).apply { text = T.t("o_ren"); isChecked = sp.getBoolean("ren", false) }; root.addView(cbRen)
+        cbCoord = CheckBox(this).apply { text = T.t("o_coord"); isChecked = sp.getBoolean("coord", true) }; root.addView(cbCoord)
         cbAuto = CheckBox(this).apply { text = T.t("o_auto"); isChecked = sp.getBoolean("auto", false) }; root.addView(cbAuto)
         root.addView(Button(this).apply { text = T.t("batt"); isAllCaps = false
             setOnClickListener { try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {} } })
@@ -112,7 +122,7 @@ class MainActivity : Activity() {
     }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }
 
-    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("remp", cbRemp.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).apply() }
+    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("remp", cbRemp.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).apply() }
 
     private fun tick() {
         val on = TraceService.actif
@@ -190,7 +200,8 @@ class MainActivity : Activity() {
         val offSec = if (fz != null) (fz * 3600).toInt() else auto
         val dec = etDecal.text.toString().trim().toIntOrNull() ?: 0
         if (TraceService.actif) { startService(Intent(this, TraceService::class.java).setAction("STOP")) }
-        val g = Geoloc(this, u, offSec, dec, cbRemp.isChecked, cbLieu.isChecked, cbRen.isChecked, Lieux.disponible(this)); travail = g
+        val g = Geoloc(this, u, offSec, dec, cbRemp.isChecked, cbLieu.isChecked, cbRen.isChecked, cbCoord.isChecked, Lieux.disponible(this)); travail = g
+        dernierArbre = u; dernierVisu = null; btnDossier.visibility = View.GONE; btnCarteVue.visibility = View.GONE
         Thread {
             if (TraceService.actif) Thread.sleep(1500)
             val pts = Trace.lireTout(this)
@@ -202,8 +213,26 @@ class MainActivity : Activity() {
             if (liste.isEmpty()) { h.post { fin(null, T.t("pas_photo"), "#E65100") }; return@Thread }
             h.post { barre.isIndeterminate = false; barre.max = liste.size }
             val b = g.traiter(liste, pts) { i, n -> h.post { barre.progress = i; carte.text = T.f("traite", i, n) } }
+            dernierVisu = Trace.exporterVisu(this, pts, b.wpts)
             h.post { fin(b, T.t(if (g.annule) "arrete" else "fini"), if (g.annule) "#E65100" else "#2E7D32") }
         }.start()
+    }
+
+    private fun ouvrirDossier() {
+        val t = dernierArbre ?: return
+        val d = android.provider.DocumentsContract.buildDocumentUriUsingTree(t, android.provider.DocumentsContract.getTreeDocumentId(t))
+        try { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(d, "vnd.android.document/directory").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+        catch (_: Exception) {
+            try { startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra("android.provider.extra.INITIAL_URI", d)) } catch (_: Exception) {}
+        }
+    }
+
+    private fun ouvrirCarte() {
+        val u = dernierVisu ?: return
+        try {
+            val i = Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/gpx+xml").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(Intent.createChooser(i, T.t("carte_info")))
+        } catch (_: Exception) { Toast.makeText(this, T.t("pas_carte"), Toast.LENGTH_LONG).show() }
     }
 
     private fun fin(b: Bilan?, titre: String, couleur: String) {
@@ -217,6 +246,7 @@ class MainActivity : Activity() {
             bilanTxt.text = t; bilanTxt.visibility = View.VISIBLE
         }
         carte.text = ""
+        if (b != null) { btnDossier.visibility = View.VISIBLE; if (dernierVisu != null) btnCarteVue.visibility = View.VISIBLE }
         try { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90).startTone(ToneGenerator.TONE_PROP_ACK, 600) } catch (_: Exception) {}
         try { (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).vibrate(VibrationEffect.createOneShot(400, VibrationEffect.DEFAULT_AMPLITUDE)) } catch (_: Exception) {}
         try { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}
