@@ -1,0 +1,127 @@
+package com.jmdargere.tracephoto
+
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
+import androidx.exifinterface.media.ExifInterface
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+class Bilan {
+    var geo = 0; var deja = 0; var hors = 0; var xmp = 0; var xmpExiste = 0; var sansDate = 0; var erreurs = 0
+}
+
+class Fichier(val parent: Uri, val docId: String, val nom: String)
+
+/** Cherche les photos du dossier choisi, lit l'heure de prise de vue et écrit la position issue de la trace. */
+class Geoloc(private val c: Context, private val racine: Uri, private val decalageUtcSec: Int, private val decalHorlogeSec: Int, private val remplacer: Boolean) {
+    @Volatile var annule = false
+    private val cr = c.contentResolver
+    private val fmt = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
+    private val jpg = setOf("jpg", "jpeg")
+    private val autres = setOf("raf", "dng", "nef", "arw", "cr2", "cr3", "orf", "rw2", "heic", "hif", "heif", "tif", "tiff")
+
+    private fun ext(n: String) = n.substringAfterLast('.', "").lowercase(Locale.ROOT)
+
+    fun lister(): List<Fichier> {
+        val out = ArrayList<Fichier>()
+        val rootId = DocumentsContract.getTreeDocumentId(racine)
+        fun marche(id: String) {
+            if (annule) return
+            val enf = DocumentsContract.buildChildDocumentsUriUsingTree(racine, id)
+            val cols = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val dossiers = ArrayList<String>()
+            try {
+                cr.query(enf, cols, null, null, null)?.use { q ->
+                    while (q.moveToNext()) {
+                        val did = q.getString(0); val nom = q.getString(1) ?: continue; val mime = q.getString(2) ?: ""
+                        if (mime == DocumentsContract.Document.MIME_TYPE_DIR) { if (!nom.startsWith(".")) dossiers.add(did) }
+                        else { val e = ext(nom); if (e in jpg || e in autres) out.add(Fichier(DocumentsContract.buildDocumentUriUsingTree(racine, id), did, nom)) }
+                    }
+                }
+            } catch (_: Exception) {}
+            for (d in dossiers) marche(d)
+        }
+        marche(rootId)
+        return out
+    }
+
+    private fun heure(exif: ExifInterface): Long? {
+        val s = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: exif.getAttribute(ExifInterface.TAG_DATETIME) ?: return null
+        return try {
+            val dt = LocalDateTime.parse(s.trim(), fmt)
+            val off = exif.getAttribute("OffsetTimeOriginal")?.let { try { ZoneOffset.of(it.trim()).totalSeconds } catch (_: Exception) { null } } ?: decalageUtcSec
+            (dt.toEpochSecond(ZoneOffset.ofTotalSeconds(off)) - decalHorlogeSec) * 1000L
+        } catch (_: Exception) { null }
+    }
+
+    fun traiter(fichiers: List<Fichier>, pts: List<Pt>, progres: (Int, Int) -> Unit): Bilan {
+        val b = Bilan()
+        for ((i, f) in fichiers.withIndex()) {
+            if (annule) break
+            progres(i + 1, fichiers.size)
+            try { un(f, pts, b) } catch (_: Exception) { b.erreurs++ }
+        }
+        return b
+    }
+
+    private fun un(f: Fichier, pts: List<Pt>, b: Bilan) {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(racine, f.docId)
+        val e = ext(f.nom)
+        // lecture seule d'abord
+        var t: Long? = null; var aGps = false
+        cr.openFileDescriptor(uri, "r")!!.use { p ->
+            val ex = ExifInterface(p.fileDescriptor)
+            t = heure(ex); aGps = ex.latLong != null
+        }
+        if (t == null) { b.sansDate++; return }
+        if (aGps && !remplacer && e in jpg) { b.deja++; return }
+        val pos = Trace.position(pts, t!!)
+        if (pos == null) { b.hors++; return }
+        if (e in jpg) {
+            cr.openFileDescriptor(uri, "rw")!!.use { p ->
+                val ex = ExifInterface(p.fileDescriptor)
+                ex.setLatLong(pos.lat, pos.lon)
+                if (pos.ele != null) {
+                    ex.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${Math.round(Math.abs(pos.ele) * 100)}/100")
+                    ex.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, if (pos.ele < 0) "1" else "0")
+                }
+                ex.saveAttributes()
+            }
+            // contrôle : on relit
+            val ok = cr.openFileDescriptor(uri, "r")!!.use { p -> ExifInterface(p.fileDescriptor).latLong != null }
+            if (ok) b.geo++ else b.erreurs++
+        } else {
+            val nomXmp = f.nom.substringBeforeLast('.') + ".xmp"
+            if (existe(f.parent, nomXmp)) { b.xmpExiste++; return }
+            val u = DocumentsContract.createDocument(cr, f.parent, "application/octet-stream", nomXmp) ?: run { b.erreurs++; return }
+            cr.openOutputStream(u, "w")!!.use { it.write(xmp(pos).toByteArray(Charsets.UTF_8)) }
+            b.xmp++; b.geo++
+        }
+    }
+
+    private fun existe(parent: Uri, nom: String): Boolean {
+        val pid = DocumentsContract.getDocumentId(parent)
+        val enf = DocumentsContract.buildChildDocumentsUriUsingTree(racine, pid)
+        cr.query(enf, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { q ->
+            while (q.moveToNext()) if (nom.equals(q.getString(0), true)) return true
+        }
+        return false
+    }
+
+    private fun dm(v: Double, pos: Char, neg: Char): String {
+        val a = Math.abs(v); val d = a.toInt(); val m = (a - d) * 60
+        return "%d,%.5f%c".format(Locale.US, d, m, if (v >= 0) pos else neg)
+    }
+
+    private fun xmp(p: Pt): String {
+        val alt = if (p.ele != null) " exif:GPSAltitude=\"${Math.round(Math.abs(p.ele) * 100)}/100\" exif:GPSAltitudeRef=\"${if (p.ele < 0) 1 else 0}\"" else ""
+        return "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+            "<rdf:Description rdf:about=\"\" xmlns:exif=\"http://ns.adobe.com/exif/1.0/\" exif:GPSVersionID=\"2.3.0.0\" " +
+            "exif:GPSLatitude=\"${dm(p.lat, 'N', 'S')}\" exif:GPSLongitude=\"${dm(p.lon, 'E', 'W')}\"$alt/>" +
+            "</rdf:RDF></x:xmpmeta>\n<?xpacket end=\"w\"?>"
+    }
+}
