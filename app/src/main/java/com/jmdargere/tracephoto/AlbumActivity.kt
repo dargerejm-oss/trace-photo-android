@@ -83,6 +83,33 @@ class AlbumActivity : Activity() {
             }.setNegativeButton("Annuler", null).show()
     }
 
+    private fun mesPdf() {
+        val l = ArrayList<Pair<Long, String>>()
+        contentResolver.query(android.provider.MediaStore.Files.getContentUri("external"),
+            arrayOf(android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME),
+            "RELATIVE_PATH = ? AND DISPLAY_NAME LIKE ?", arrayOf("Documents/TRACE_PHOTO/", "%.pdf"),
+            "date_added DESC")?.use { c -> while (c.moveToNext()) l.add(c.getLong(0) to c.getString(1)) }
+        if (l.isEmpty()) { Toast.makeText(this, "Aucun PDF enregistré", Toast.LENGTH_SHORT).show(); return }
+        AlertDialog.Builder(this).setTitle("📂 Mes PDF")
+            .setItems(l.map { it.second }.toTypedArray()) { _, i ->
+                val u = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Files.getContentUri("external"), l[i].first)
+                AlertDialog.Builder(this).setTitle(l[i].second)
+                    .setPositiveButton("Ouvrir") { _, _ ->
+                        try { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } catch (_: Exception) {}
+                    }
+                    .setNeutralButton("Partager") { _, _ ->
+                        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM, u).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager"))
+                    }
+                    .setNegativeButton("Supprimer") { _, _ ->
+                        AlertDialog.Builder(this).setTitle("Supprimer ce PDF ?").setMessage(l[i].second + "\n(les photos ne sont pas touchées)")
+                            .setPositiveButton("Oui, supprimer") { _, _ ->
+                                val ok = try { contentResolver.delete(u, null, null) > 0 } catch (_: Exception) { false }
+                                Toast.makeText(this, if (ok) "PDF supprimé" else "Suppression impossible", Toast.LENGTH_SHORT).show()
+                            }.setNegativeButton("Non", null).show()
+                    }.show()
+            }.setNegativeButton("Fermer", null).show()
+    }
+
     private fun selection() = photos.filter { it.uri in choisies }
 
     override fun onCreate(b: Bundle?) {
@@ -104,6 +131,7 @@ class AlbumActivity : Activity() {
         val l2 = LinearLayout(this).apply { setPadding(dp(6), 0, dp(6), dp(4)) }
         l2.addView(bt("🗺 Carte (GPX)", "#00838F") { exporterCarte() }, lp())
         l2.addView(bt("📄 PDF", "#C62828") { exporterPdf() }, lp())
+        l2.addView(bt("📂 Mes PDF", "#37474F") { mesPdf() }, lp())
         root.addView(l2)
         val l3 = LinearLayout(this).apply { setPadding(dp(6), 0, dp(6), dp(4)) }
         l3.addView(bt("📅 Jours", "#5D4037") { jours() }, lp())
