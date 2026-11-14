@@ -31,13 +31,13 @@ object Album {
         return Trace.lireTout(c).filter { it.t in t0..t1 }
     }
 
-    fun carteGpx(c: Context, sel: List<Entree>, avecTrace: Boolean): Uri? {
+    fun carteGpx(c: Context, sel: List<Entree>, avecTrace: Boolean, base: String = "album"): Uri? {
         val wp = sel.filter { it.lat != null && it.lon != null }.map { Wp(it.nom, it.lat!!, it.lon!!, it.t, it.lieu) }
-        return Trace.exporterCarnet(c, wp, if (avecTrace) tracePlage(c, sel) else emptyList(), "album_")
+        return Trace.exporterCarnet(c, wp, if (avecTrace) tracePlage(c, sel) else emptyList(), base + "_")
     }
 
     // ---------- PDF ----------
-    fun pdf(c: Context, sel: List<Entree>, avecTrace: Boolean, progres: (Int, Int, String) -> Unit): Uri? {
+    fun pdf(c: Context, sel: List<Entree>, avecTrace: Boolean, base: String, progres: (Int, Int, String) -> Unit): Uri? {
         val doc = PdfDocument()
         try {
             val trace = if (avecTrace) tracePlage(c, sel) else emptyList()
@@ -51,7 +51,7 @@ object Album {
                 dessinerPhoto(c, page.canvas, e, i + 1, sel.size)
                 doc.finishPage(page)
             }
-            val nom = "album_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date()) + ".pdf"
+            val nom = base + "_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date()) + ".pdf"
             val v = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, nom); put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/TRACE_PHOTO")

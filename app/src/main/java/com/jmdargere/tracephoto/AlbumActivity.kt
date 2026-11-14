@@ -33,6 +33,56 @@ class AlbumActivity : Activity() {
         setBackgroundColor(Color.parseColor(c)); setOnClickListener { f() }
     }
 
+    private var nomAlbum: String? = null
+    private val dossier get() = java.io.File(filesDir, "albums").apply { mkdirs() }
+    private fun sur(n: String) = n.replace(Regex("[^A-Za-z0-9À-ÿ _-]"), "").trim().replace(' ', '_').ifEmpty { "album" }
+    private fun base() = sur(nomAlbum ?: "album").let { if (it.startsWith("album")) it else "album_$it" }
+
+    private fun enregistrer() {
+        if (choisies.isEmpty()) { Toast.makeText(this, "Aucune photo choisie", Toast.LENGTH_SHORT).show(); return }
+        val s = selection()
+        val f = SimpleDateFormat("dd-MM", Locale.FRENCH)
+        val et = EditText(this).apply { setText(nomAlbum ?: "Album ${f.format(s.first().t)} au ${f.format(s.last().t)}") }
+        AlertDialog.Builder(this).setTitle("💾 Nom de l'album").setView(et)
+            .setPositiveButton("Enregistrer") { _, _ ->
+                val n = et.text.toString().trim().ifEmpty { "Album" }
+                nomAlbum = n
+                java.io.File(dossier, sur(n) + ".txt").writeText(n + "\n" + s.joinToString("\n") { it.uri })
+                Toast.makeText(this, "Album « $n » enregistré (${s.size} photos)", Toast.LENGTH_LONG).show(); maj()
+            }.setNegativeButton("Annuler", null).show()
+    }
+
+    private fun mesAlbums() {
+        val fs = dossier.listFiles { x -> x.name.endsWith(".txt") }?.sortedBy { it.name } ?: emptyList()
+        if (fs.isEmpty()) { Toast.makeText(this, "Aucun album enregistré", Toast.LENGTH_SHORT).show(); return }
+        val noms = fs.map { it.readLines().first() }
+        AlertDialog.Builder(this).setTitle("📂 Mes albums")
+            .setItems(noms.toTypedArray()) { _, i ->
+                val l = fs[i].readLines(); val vus = l.drop(1).toSet()
+                choisies.clear(); photos.filter { it.uri in vus }.forEach { choisies.add(it.uri) }
+                nomAlbum = l.first(); maj()
+                Toast.makeText(this, "« ${l.first()} » : ${choisies.size} photos retrouvées", Toast.LENGTH_LONG).show()
+            }
+            .setNeutralButton("Supprimer un album") { _, _ ->
+                AlertDialog.Builder(this).setTitle("Supprimer quel album ? (les photos ne sont pas touchées)")
+                    .setItems(noms.toTypedArray()) { _, i -> fs[i].delete(); Toast.makeText(this, "Album supprimé", Toast.LENGTH_SHORT).show() }
+                    .setNegativeButton("Annuler", null).show()
+            }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun jours() {
+        val f = SimpleDateFormat("yyyy-MM-dd", Locale.US); val g = SimpleDateFormat("EEE d MMM", Locale.FRENCH)
+        val parJour = photos.groupBy { f.format(it.t) }.toSortedMap()
+        val cles = parJour.keys.toList()
+        val coche = BooleanArray(cles.size) { i -> parJour[cles[i]]!!.all { it.uri in choisies } }
+        AlertDialog.Builder(this).setTitle("📅 Choisir les jours")
+            .setMultiChoiceItems(cles.map { "${g.format(parJour[it]!!.first().t)} (${parJour[it]!!.size})" }.toTypedArray(), coche) { _, i, v -> coche[i] = v }
+            .setPositiveButton("OK") { _, _ ->
+                choisies.clear(); cles.forEachIndexed { i, k -> if (coche[i]) parJour[k]!!.forEach { choisies.add(it.uri) } }
+                nomAlbum = null; maj()
+            }.setNegativeButton("Annuler", null).show()
+    }
+
     private fun selection() = photos.filter { it.uri in choisies }
 
     override fun onCreate(b: Bundle?) {
@@ -55,6 +105,11 @@ class AlbumActivity : Activity() {
         l2.addView(bt("🗺 Carte (GPX)", "#00838F") { exporterCarte() }, lp())
         l2.addView(bt("📄 PDF", "#C62828") { exporterPdf() }, lp())
         root.addView(l2)
+        val l3 = LinearLayout(this).apply { setPadding(dp(6), 0, dp(6), dp(4)) }
+        l3.addView(bt("📅 Jours", "#5D4037") { jours() }, lp())
+        l3.addView(bt("💾 Enregistrer", "#2E7D32") { enregistrer() }, lp())
+        l3.addView(bt("📂 Mes albums", "#6A1B9A") { mesAlbums() }, lp())
+        root.addView(l3)
         val grille = GridView(this).apply { numColumns = 3; verticalSpacing = dp(4); horizontalSpacing = dp(4); setPadding(dp(4), dp(4), dp(4), dp(4)) }
         adapt = object : BaseAdapter() {
             override fun getCount() = photos.size
@@ -103,12 +158,12 @@ class AlbumActivity : Activity() {
         maj()
     }
 
-    private fun maj() { titre.text = "🖼 Album : ${choisies.size} / ${photos.size} photos"; adapt.notifyDataSetChanged() }
+    private fun maj() { titre.text = "🖼 ${nomAlbum ?: "Album"} : ${choisies.size} / ${photos.size} photos"; adapt.notifyDataSetChanged() }
 
     private fun exporterCarte() {
         val s = selection()
         if (s.isEmpty()) { Toast.makeText(this, "Aucune photo choisie", Toast.LENGTH_SHORT).show(); return }
-        val u = Album.carteGpx(this, s, sp.getBoolean("j_trace", false))
+        val u = Album.carteGpx(this, s, sp.getBoolean("j_trace", false), base())
         if (u == null) { Toast.makeText(this, "Export impossible", Toast.LENGTH_LONG).show(); return }
         try {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/gpx+xml").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Ouvrir la carte"))
@@ -124,7 +179,7 @@ class AlbumActivity : Activity() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(16), dp(20), dp(8)); addView(tv); addView(pb) }
         val dlg = AlertDialog.Builder(this).setTitle("📄 Création du PDF").setView(box).setCancelable(false).show()
         Thread {
-            val u = try { Album.pdf(this, s, avec) { i, n, nom -> runOnUiThread { pb.progress = i; tv.text = "Photo $i / $n\n$nom" } } } catch (e: Throwable) { null }
+            val u = try { Album.pdf(this, s, avec, base()) { i, n, nom -> runOnUiThread { pb.progress = i; tv.text = "Photo $i / $n\n$nom" } } } catch (e: Throwable) { null }
             runOnUiThread {
                 dlg.dismiss()
                 if (u == null) { AlertDialog.Builder(this).setMessage("Échec de création du PDF").setPositiveButton("OK", null).show(); return@runOnUiThread }
