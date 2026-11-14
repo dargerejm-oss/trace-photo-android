@@ -77,6 +77,8 @@ class JournalActivity : Activity() {
         ligne.addView(bt("🗺 " + T.t("j_gpx"), "#00838F") { gpxVoyage() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         ligne.addView(bt("💾 " + T.t("j_sauv"), "#6A1B9A") { sauvegarder() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         root.addView(ligne)
+        root.addView(bt("🖼 Album / export PDF", "#E65100") { startActivity(android.content.Intent(this, AlbumActivity::class.java)) },
+            LinearLayout.LayoutParams(-1, dp(48)).apply { setMargins(dp(9), dp(4), dp(9), 0) })
         root.addView(CheckBox(this).apply { text = "🥾 Ajouter ma trace GPS réelle sur la carte"; textSize = 15f; setPadding(dp(14), dp(6), dp(14), dp(6)); isChecked = avecTrace
             setOnCheckedChangeListener { _, v -> sp.edit().putBoolean("j_trace", v).apply() } })
         val sv = ScrollView(this); liste = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(20)) }

@@ -68,12 +68,12 @@ object Trace {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;")
 
     /** GPX de visualisation : la trace + un repère par photo géolocalisée. Retourne son Uri (Documents/TRACE_PHOTO). */
-    private fun ecrireGpx(c: Context, contenu: String): android.net.Uri? {
+    private fun ecrireGpx(c: Context, contenu: String, prefixe: String = "photos_"): android.net.Uri? {
         if (Build.VERSION.SDK_INT < 29) return null
-        val n = "photos_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".gpx"
+        val n = prefixe + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".gpx"
         return try {
             // supprime les anciennes cartes photos_*.gpx (copies jetables) pour ne garder que la nouvelle
-            try { c.contentResolver.delete(MediaStore.Files.getContentUri("external"), "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?", arrayOf("photos_%.gpx", "Documents/TRACE_PHOTO/")) } catch (_: Exception) {}
+            try { c.contentResolver.delete(MediaStore.Files.getContentUri("external"), "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?", arrayOf(prefixe + "%.gpx", "Documents/TRACE_PHOTO/")) } catch (_: Exception) {}
             val v = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, n)
                 put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
@@ -98,7 +98,7 @@ object Trace {
     }
 
     /** Carnet de voyage : un point par photo restante (nom = jour + heure), et un parcours par jour reliant les photos. */
-    fun exporterCarnet(c: Context, photos: List<Wp>, trace: List<Pt> = emptyList()): android.net.Uri? {
+    fun exporterCarnet(c: Context, photos: List<Wp>, trace: List<Pt> = emptyList(), prefixe: String = "photos_"): android.net.Uri? {
         val fmt = iso.get()!!
         val jour = SimpleDateFormat("yyyy-MM-dd", Locale.US); val heure = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.US)
         val l = photos.sortedBy { it.t }
@@ -122,7 +122,7 @@ object Trace {
             sb.append("</trk>\n")
         }
         sb.append("</gpx>\n")
-        return ecrireGpx(c, sb.toString())
+        return ecrireGpx(c, sb.toString(), prefixe)
     }
 
     fun lireTout(c: Context): List<Pt> {
