@@ -45,7 +45,12 @@ object Journal {
     }
     /** Entrées dont la photo existe encore dans la galerie (les photos supprimées par l'utilisateur n'apparaissent plus). Le fichier du journal reste intact, donc rien n'est réimporté. */
     fun vivantes(c: Context): List<Entree> = lire(c).filter { e ->
-        try { c.contentResolver.query(Uri.parse(e.uri), arrayOf("_id"), null, null, null)?.use { it.count > 0 } ?: false } catch (_: Exception) { false }
+        try {
+            val u = Uri.parse(e.uri)
+            val ligne = c.contentResolver.query(u, arrayOf("_id"), null, null, null)?.use { it.count > 0 } ?: false
+            // le fichier doit vraiment s'ouvrir (une ligne peut rester dans la base après une suppression)
+            ligne && (c.contentResolver.openFileDescriptor(u, "r")?.use { it.statSize > 0 } ?: false)
+        } catch (_: Exception) { false }
     }
 }
 
