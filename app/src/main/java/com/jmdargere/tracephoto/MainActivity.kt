@@ -143,7 +143,7 @@ class MainActivity : Activity() {
             addView(TextView(this@MainActivity).apply { text = T.t("calib_1") }); addView(tv) }
         calibDlg = android.app.AlertDialog.Builder(this).setTitle(T.t("calib")).setView(lay)
             .setPositiveButton(T.t("calib_suite")) { _, _ -> h.removeCallbacks(run)
-                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/jpeg"; putExtra(Intent.EXTRA_INITIAL_URI, null as Uri?) }
+                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/jpeg" }
                 startActivityForResult(i, RC_CALIB) }
             .setNegativeButton("✕") { _, _ -> h.removeCallbacks(run) }.setOnCancelListener { h.removeCallbacks(run) }.show()
     }
