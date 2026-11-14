@@ -226,7 +226,7 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
             try {
                 val copieOk = cr.openFileDescriptor(p.second, "r")?.use { it.statSize > 1000 } == true
                 if (!copieOk) { b.copieAbsente++; b.echecSupp++; continue }
-                if (DocumentsContract.deleteDocument(cr, p.first)) b.supprimees++ else { b.echecSupp++; if (b.errSupp.isEmpty()) b.errSupp = "refus du système (deleteDocument=false)" }
+                if (DocumentsContract.deleteDocument(cr, p.first)) { val encore = try { cr.query(p.first, arrayOf("document_id"), null, null, null)?.use { it.count > 0 } == true } catch (_: Exception) { false }; if (encore) { b.echecSupp++; if (b.errSupp.isEmpty()) b.errSupp = "fichier toujours présent après suppression" } else b.supprimees++ } else { b.echecSupp++; if (b.errSupp.isEmpty()) b.errSupp = "refus du système (deleteDocument=false)" }
             } catch (e: Exception) { b.echecSupp++; if (b.errSupp.isEmpty()) b.errSupp = (e.javaClass.simpleName + ": " + (e.message ?: "")).take(160) }
         }
     }

@@ -34,10 +34,12 @@ class TraceService : Service() {
     private var immobile = 0
     private var dernierTz = Int.MIN_VALUE
     private var lent = false
+    private var parProg = false
     private var eco = true
 
     private fun noter(l: Location) {
         val f = fichier ?: return
+        if (parProg && !Programme.dedans(this)) { arreter(); return }
         if (l.hasAccuracy() && l.accuracy > 150f) return
         Trace.ajouter(f, l.latitude, l.longitude, if (l.hasAltitude()) l.altitude else null, l.time)
         points++; dernierFix = System.currentTimeMillis()
@@ -63,8 +65,9 @@ class TraceService : Service() {
         val repris: File? = if (intent == null) sp.getString("fichier", null)?.let { File(it) }?.takeIf { it.exists() } else null
         fichier = repris ?: Trace.nouveauFichier(this)
         sp.edit().putString("fichier", fichier!!.absolutePath).putBoolean("actif", true).apply()
-        wl = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tracephoto:trace").apply { acquire(12 * 3600_000L) }
+        wl = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tracephoto:trace").apply { acquire(16 * 3600_000L) }
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        parProg = intent?.getBooleanExtra("prog", false) == true
         eco = sp.getBoolean("eco", true); lent = false; immobile = 0; dernier = null
         try {
             lm!!.requestLocationUpdates(LocationManager.GPS_PROVIDER, INTERVALLE, 0f, ecoute)

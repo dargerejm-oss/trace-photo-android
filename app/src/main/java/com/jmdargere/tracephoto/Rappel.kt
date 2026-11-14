@@ -13,8 +13,8 @@ import java.util.Calendar
 class Rappel : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         val sp = c.getSharedPreferences("trace", Context.MODE_PRIVATE)
+        if (i.action == Intent.ACTION_BOOT_COMPLETED) { Programme.armer(c); if (sp.getBoolean("rappel", false)) armer(c, true); return }
         if (!sp.getBoolean("rappel", false)) return
-        if (i.action == Intent.ACTION_BOOT_COMPLETED) { armer(c, true); return }
         if (TraceService.actif) return
         val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(NotificationChannel("rappel", "Rappel", NotificationManager.IMPORTANCE_DEFAULT))

@@ -40,6 +40,9 @@ class MainActivity : Activity() {
     private lateinit var cbSans: CheckBox
     private lateinit var cbVois: CheckBox
     private lateinit var cbRappel: CheckBox
+    private lateinit var cbProg: CheckBox
+    private lateinit var etPd: EditText
+    private lateinit var etPf: EditText
     private lateinit var sablier: android.webkit.WebView
     private lateinit var cbEco: CheckBox
     private lateinit var cbParApp: CheckBox
@@ -134,6 +137,14 @@ class MainActivity : Activity() {
         etAlbum = EditText(this).apply { setText(sp.getString("album", "Fuji X4")); setSingleLine() }; root.addView(etAlbum)
         cbRappel = CheckBox(this).apply { text = T.t("o_rappel"); isChecked = sp.getBoolean("rappel", false)
             setOnCheckedChangeListener { _, on -> sp.edit().putBoolean("rappel", on).apply(); Rappel.armer(this@MainActivity, on) } }; root.addView(cbRappel)
+        cbProg = CheckBox(this).apply { text = T.t("o_prog"); isChecked = sp.getBoolean("prog", false)
+            setOnCheckedChangeListener { _, on -> sp.edit().putBoolean("prog", on).apply(); if (on) { demanderToujours(); if (Programme.dedans(this@MainActivity) && !TraceService.actif) basculeTrace() }; Programme.armer(this@MainActivity) } }; root.addView(cbProg)
+        val lp = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        etPd = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(sp.getInt("prog_d", 8).toString()); setSingleLine(); gravity = Gravity.CENTER }
+        etPf = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(sp.getInt("prog_f", 20).toString()); setSingleLine(); gravity = Gravity.CENTER }
+        lp.addView(txt(T.t("prog_de"), 14f)); lp.addView(etPd, LinearLayout.LayoutParams(dp(70), -2)); lp.addView(txt(T.t("prog_a"), 14f)); lp.addView(etPf, LinearLayout.LayoutParams(dp(70), -2)); lp.addView(txt(" h", 14f))
+        root.addView(lp)
+        root.addView(Button(this).apply { text = T.t("b_toujours"); isAllCaps = false; setOnClickListener { demanderToujours(true) } })
         cbAuto = CheckBox(this).apply { text = T.t("o_auto"); isChecked = sp.getBoolean("auto", false) }; root.addView(cbAuto)
         root.addView(Button(this).apply { text = T.t("batt"); isAllCaps = false
             setOnClickListener { try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {} } })
@@ -198,7 +209,7 @@ class MainActivity : Activity() {
     }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }
 
-    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).putBoolean("vois", cbVois.isChecked).putBoolean("eco", cbEco.isChecked).putBoolean("parapp", cbParApp.isChecked).putString("album", etAlbum.text.toString().trim()).apply() }
+    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).putBoolean("vois", cbVois.isChecked).putBoolean("eco", cbEco.isChecked).putBoolean("parapp", cbParApp.isChecked).putString("album", etAlbum.text.toString().trim()).putInt("prog_d", (etPd.text.toString().toIntOrNull() ?: 8).coerceIn(0, 23)).putInt("prog_f", (etPf.text.toString().toIntOrNull() ?: 20).coerceIn(0, 23)).apply(); Programme.armer(this) }
 
     private fun tick() {
         val on = TraceService.actif
@@ -334,6 +345,13 @@ class MainActivity : Activity() {
             }.setNegativeButton(T.t("sup_non"), null).setCancelable(false).show()
     }
 
+    private fun demanderToujours(force: Boolean = false) {
+        if (Build.VERSION.SDK_INT >= 29 && (force || checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED)) {
+            Toast.makeText(this, T.t("toujours_msg"), Toast.LENGTH_LONG).show()
+            try { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
+        }
+    }
+
     private fun nettoyerCarte() {
         if (enCours) return
         val s = sp.getString("arbre", null)
@@ -356,10 +374,12 @@ class MainActivity : Activity() {
         val g = dernierGeo ?: return; val b = dernierBilan ?: return
         enCours = true; barre.visibility = View.VISIBLE; sablier.visibility = View.VISIBLE; barre.isIndeterminate = false; barre.max = b.aSupprimer.size
         Thread {
+            g.annule = false
             g.supprimerOriginaux(b) { i, n -> h.post { barre.progress = i; hg(i, n); carte.text = T.f("traite", i, n) } }
+            val reste = try { g.lister().size } catch (_: Exception) { -1 }
             h.post {
                 enCours = false; barre.visibility = View.GONE; sablier.visibility = View.GONE; carte.text = ""
-                var t = bilanTxt.text.toString() + T.f("bilan_sup", b.supprimees)
+                var t = bilanTxt.text.toString() + T.f("bilan_sup", b.supprimees) + (if (reste >= 0) "\n🔎 " + T.f("sup_reste", reste) else "")
                 if (b.echecSupp > 0) t += T.f("bilan_sup_echec", b.echecSupp) + (if (b.errSupp.isNotEmpty()) "\n⚠ " + b.errSupp else "") + (if (b.copieAbsente > 0) "\n⚠ " + T.f("sup_copie_abs", b.copieAbsente) else "")
                 bilanTxt.text = t; b.aSupprimer.clear()
                 banniere.text = T.t("fini"); banniere.background = fond(Color.parseColor("#2E7D32"))
