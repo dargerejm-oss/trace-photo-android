@@ -98,7 +98,7 @@ object Trace {
     }
 
     /** Carnet de voyage : un point par photo restante (nom = jour + heure), et un parcours par jour reliant les photos. */
-    fun exporterCarnet(c: Context, photos: List<Wp>): android.net.Uri? {
+    fun exporterCarnet(c: Context, photos: List<Wp>, trace: List<Pt> = emptyList()): android.net.Uri? {
         val fmt = iso.get()!!
         val jour = SimpleDateFormat("yyyy-MM-dd", Locale.US); val heure = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.US)
         val l = photos.sortedBy { it.t }
@@ -108,6 +108,18 @@ object Trace {
             sb.append("<trk><name>%s</name><trkseg>\n".format(esc(j)))
             for (w in v) sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, w.lat, w.lon, fmt.format(Date(w.t))))
             sb.append("</trkseg></trk>\n")
+        }
+        if (trace.isNotEmpty()) {
+            // vraie trace GPS : un nouveau segment à chaque coupure de plus de 15 min (pas de ligne droite à travers les trous)
+            sb.append("<trk><name>Trace GPS réelle</name>\n")
+            var prec = -1L; var ouvert = false
+            for (p in trace.sortedBy { it.t }) {
+                if (!ouvert || p.t - prec > 900_000) { if (ouvert) sb.append("</trkseg>\n"); sb.append("<trkseg>\n"); ouvert = true }
+                sb.append("<trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n".format(Locale.US, p.lat, p.lon, fmt.format(Date(p.t))))
+                prec = p.t
+            }
+            if (ouvert) sb.append("</trkseg>\n")
+            sb.append("</trk>\n")
         }
         sb.append("</gpx>\n")
         return ecrireGpx(c, sb.toString())

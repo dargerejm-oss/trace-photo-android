@@ -22,6 +22,7 @@ class JournalActivity : Activity() {
     }
     private val sp by lazy { getSharedPreferences("trace", MODE_PRIVATE) }
     private var reel = false
+    private val avecTrace get() = sp.getBoolean("j_trace", false)
     private var nbPhotos = 0
     private lateinit var titre: TextView
     private val df = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -76,6 +77,8 @@ class JournalActivity : Activity() {
         ligne.addView(bt("🗺 " + T.t("j_gpx"), "#00838F") { gpxVoyage() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         ligne.addView(bt("💾 " + T.t("j_sauv"), "#6A1B9A") { sauvegarder() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         root.addView(ligne)
+        root.addView(CheckBox(this).apply { text = "🥾 Ajouter ma trace GPS réelle sur la carte"; textSize = 15f; setPadding(dp(14), dp(6), dp(14), dp(6)); isChecked = avecTrace
+            setOnCheckedChangeListener { _, v -> sp.edit().putBoolean("j_trace", v).apply() } })
         val sv = ScrollView(this); liste = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(20)) }
         sv.addView(liste); root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -104,7 +107,7 @@ class JournalActivity : Activity() {
     private fun gpxVoyage() {
         Thread {
             val ent = Journal.vivantes(this).filter { it.jpeg && it.lat != null && it.lon != null && it.t > 0 }
-            val u = Trace.exporterCarnet(this, ent.map { Wp(it.nom, it.lat!!, it.lon!!, it.t, it.lieu) })
+            val u = Trace.exporterCarnet(this, ent.map { Wp(it.nom, it.lat!!, it.lon!!, it.t, it.lieu) }, if (avecTrace) Trace.lireTout(this) else emptyList())
             runOnUiThread {
                 if (u == null) { Toast.makeText(this, T.t("pas_carte"), Toast.LENGTH_LONG).show(); return@runOnUiThread }
                 try { startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/gpx+xml").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), T.t("carte_info"))) }
