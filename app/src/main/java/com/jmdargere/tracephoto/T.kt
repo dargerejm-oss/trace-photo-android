@@ -35,6 +35,14 @@ object T {
         "perm" to "La permission de position est nécessaire.",
         "perm_bg" to "Pour une trace fiable, choisis « Toujours autoriser » ou « Autoriser tout le temps ».",
         "versiontxt" to "par JM.DARGERE",
+        "o_lieu" to "Écrire le nom du lieu (ville, pays) dans les photos",
+        "o_ren" to "Renommer les fichiers : date_heure_Ville-Pays_nom (JPEG, RAW et XMP ensemble)",
+        "o_auto" to "Lancer tout seul à l'ouverture si la carte est branchée",
+        "dl_lieux" to "Téléchargement de la base des villes (une seule fois, 2 Mo)…",
+        "pas_lieux" to "Noms de lieux : base non téléchargée (pas d'internet). Ils seront ajoutés au prochain passage.",
+        "bilan_lieux" to "\n\n🌍 Lieux :\n%s",
+        "bilan_ren" to "\n✏ %d fichier(s) renommé(s)",
+        "credit" to "Noms de lieux : GeoNames (CC-BY 4.0).",
         "garde" to "Les originaux JPEG reçoivent la position dans leurs données EXIF. Les RAW ne sont jamais modifiés : un petit fichier .xmp est créé à côté.",
     )
     private val en = mapOf(
@@ -68,6 +76,14 @@ object T {
         "perm" to "Location permission is required.",
         "perm_bg" to "For a reliable track, choose “Allow all the time”.",
         "versiontxt" to "by JM.DARGERE",
+        "o_lieu" to "Write the place name (city, country) into the photos",
+        "o_ren" to "Rename files: date_time_City-Country_name (JPEG, RAW and XMP together)",
+        "o_auto" to "Start automatically when opened if the card is plugged in",
+        "dl_lieux" to "Downloading the city database (once, 2 MB)…",
+        "pas_lieux" to "Place names: database not downloaded (no internet). They will be added next time.",
+        "bilan_lieux" to "\n\n🌍 Places:\n%s",
+        "bilan_ren" to "\n✏ %d file(s) renamed",
+        "credit" to "Place names: GeoNames (CC-BY 4.0).",
         "garde" to "JPEG originals get the position in their EXIF data. RAW files are never modified: a small .xmp file is created next to them.",
     )
     fun t(k: String): String {

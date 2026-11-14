@@ -38,6 +38,9 @@ class MainActivity : Activity() {
     private lateinit var etFuseau: EditText
     private lateinit var etDecal: EditText
     private lateinit var cbRemp: CheckBox
+    private lateinit var cbLieu: CheckBox
+    private lateinit var cbRen: CheckBox
+    private lateinit var cbAuto: CheckBox
     private lateinit var btnStop: Button
     private var travail: Geoloc? = null
     private var enCours = false
@@ -94,15 +97,22 @@ class MainActivity : Activity() {
         root.addView(etDecal)
         cbRemp = CheckBox(this).apply { text = T.t("remplacer"); isChecked = sp.getBoolean("remp", false) }
         root.addView(cbRemp)
+        cbLieu = CheckBox(this).apply { text = T.t("o_lieu"); isChecked = sp.getBoolean("lieu", true) }; root.addView(cbLieu)
+        cbRen = CheckBox(this).apply { text = T.t("o_ren"); isChecked = sp.getBoolean("ren", false) }; root.addView(cbRen)
+        cbAuto = CheckBox(this).apply { text = T.t("o_auto"); isChecked = sp.getBoolean("auto", false) }; root.addView(cbAuto)
         root.addView(Button(this).apply { text = T.t("batt"); isAllCaps = false
             setOnClickListener { try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {} } })
-        root.addView(txt(T.t("garde"), 12f, Color.parseColor("#546E7A")).apply { setPadding(0, dp(12), 0, 0) })
+        root.addView(txt(T.t("garde") + "\n" + T.t("credit"), 12f, Color.parseColor("#546E7A")).apply { setPadding(0, dp(12), 0, 0) })
     }
 
-    override fun onResume() { super.onResume(); tick() }
+    private var autoFait = false
+    override fun onResume() {
+        super.onResume(); tick()
+        if (!autoFait && sp.getBoolean("auto", false) && !enCours && carteDetectee() != null && sp.getString("arbre", null) != null) { autoFait = true; lancer(false) }
+    }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }
 
-    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("remp", cbRemp.isChecked).apply() }
+    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("remp", cbRemp.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).apply() }
 
     private fun tick() {
         val on = TraceService.actif
@@ -179,10 +189,14 @@ class MainActivity : Activity() {
         val fz = etFuseau.text.toString().trim().toDoubleOrNull()
         val offSec = if (fz != null) (fz * 3600).toInt() else auto
         val dec = etDecal.text.toString().trim().toIntOrNull() ?: 0
-        val g = Geoloc(this, u, offSec, dec, cbRemp.isChecked); travail = g
+        if (TraceService.actif) { startService(Intent(this, TraceService::class.java).setAction("STOP")) }
+        val g = Geoloc(this, u, offSec, dec, cbRemp.isChecked, cbLieu.isChecked, cbRen.isChecked, Lieux.disponible(this)); travail = g
         Thread {
+            if (TraceService.actif) Thread.sleep(1500)
             val pts = Trace.lireTout(this)
             if (pts.isEmpty()) { h.post { fin(null, T.t("pas_trace"), "#E65100") }; return@Thread }
+            var lieuxOk = false
+            if (cbLieu.isChecked || cbRen.isChecked) { h.post { carte.text = T.t("dl_lieux") }; lieuxOk = Lieux.assurer(this); g.lieuxOk = lieuxOk }
             h.post { carte.text = T.t("recherche") }
             val liste = g.lister()
             if (liste.isEmpty()) { h.post { fin(null, T.t("pas_photo"), "#E65100") }; return@Thread }
@@ -195,7 +209,13 @@ class MainActivity : Activity() {
     private fun fin(b: Bilan?, titre: String, couleur: String) {
         enCours = false; btnGeo.isEnabled = true; barre.visibility = View.GONE; btnStop.visibility = View.GONE
         banniere.text = titre; banniere.background = fond(Color.parseColor(couleur)); banniere.visibility = View.VISIBLE
-        if (b != null) { bilanTxt.text = T.f("bilan", b.geo, b.deja, b.hors, b.xmp, b.xmpExiste, b.sansDate, b.erreurs); bilanTxt.visibility = View.VISIBLE }
+        if (b != null) {
+            var t = T.f("bilan", b.geo, b.deja, b.hors, b.xmp, b.xmpExiste, b.sansDate, b.erreurs)
+            if (b.lieux.isNotEmpty()) t += T.f("bilan_lieux", b.lieux.entries.sortedByDescending { it.value }.joinToString("\n") { "• ${it.key} : ${it.value}" })
+            else if ((cbLieu.isChecked || cbRen.isChecked) && !Lieux.disponible(this)) t += "\n\n" + T.t("pas_lieux")
+            if (b.renomme > 0) t += T.f("bilan_ren", b.renomme)
+            bilanTxt.text = t; bilanTxt.visibility = View.VISIBLE
+        }
         carte.text = ""
         try { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90).startTone(ToneGenerator.TONE_PROP_ACK, 600) } catch (_: Exception) {}
         try { (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).vibrate(VibrationEffect.createOneShot(400, VibrationEffect.DEFAULT_AMPLITUDE)) } catch (_: Exception) {}
