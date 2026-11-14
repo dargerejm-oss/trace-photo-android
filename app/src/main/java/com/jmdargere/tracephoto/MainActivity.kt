@@ -46,6 +46,7 @@ class MainActivity : Activity() {
     private lateinit var sablier: android.webkit.WebView
     private lateinit var cbEco: CheckBox
     private lateinit var cbLisse: CheckBox
+    private lateinit var cbTel: CheckBox
     private lateinit var cbParApp: CheckBox
     private lateinit var etAlbum: EditText
     private val RC_CALIB = 4
@@ -64,7 +65,7 @@ class MainActivity : Activity() {
     private lateinit var btnStop: Button
     private var travail: Geoloc? = null
     private var enCours = false
-    private val RC_LOC = 1; private val RC_DOSSIER = 2
+    private val RC_LOC = 1; private val RC_DOSSIER = 2; private val RC_TEL = 7
     private val sp by lazy { getSharedPreferences("trace", MODE_PRIVATE) }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -137,6 +138,9 @@ class MainActivity : Activity() {
         cbVois = CheckBox(this).apply { text = T.t("o_vois"); isChecked = sp.getBoolean("vois", true) }; root.addView(cbVois)
         cbEco = CheckBox(this).apply { text = T.t("o_eco"); isChecked = sp.getBoolean("eco", true) }; root.addView(cbEco)
         cbLisse = CheckBox(this).apply { text = "〰 Lisser la trace (ignorer le bruit et les sauts du GPS)"; isChecked = sp.getBoolean("lisse", true) }; root.addView(cbLisse)
+        cbTel = CheckBox(this).apply { text = "📱 Ajouter aussi les photos prises avec la caméra du téléphone (pas les captures d'écran ni les téléchargements)"; isChecked = sp.getBoolean("tel", false) && Telephone.ok(this@MainActivity)
+            setOnCheckedChangeListener { _, v -> sp.edit().putBoolean("tel", v).apply(); if (v) { if (Telephone.ok(this@MainActivity)) syncTel(true) else requestPermissions(Telephone.permissions(), RC_TEL) } } }
+        root.addView(cbTel)
         cbParApp = CheckBox(this).apply { text = T.t("o_parapp"); isChecked = sp.getBoolean("parapp", false) }; root.addView(cbParApp)
         root.addView(txt(T.t("album"), 13f))
         etAlbum = EditText(this).apply { setText(sp.getString("album", "Fuji X4")); setSingleLine() }; root.addView(etAlbum)
@@ -253,12 +257,12 @@ class MainActivity : Activity() {
     }
 
     override fun onResume() {
-        super.onResume(); tick(); montrerCrash()
+        super.onResume(); tick(); montrerCrash(); syncTel(false)
         if (!autoFait && sp.getBoolean("auto", false) && !enCours && carteDetectee() != null && sp.getString("arbre", null) != null) { autoFait = true; lancer(false) }
     }
     override fun onPause() { super.onPause(); h.removeCallbacksAndMessages(null); sauveReglages() }
 
-    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).putBoolean("vois", cbVois.isChecked).putBoolean("eco", cbEco.isChecked).putBoolean("lisse", cbLisse.isChecked).putBoolean("parapp", cbParApp.isChecked).putString("album", etAlbum.text.toString().trim()).putInt("prog_d", (etPd.text.toString().toIntOrNull() ?: 8).coerceIn(0, 23)).putInt("prog_f", (etPf.text.toString().toIntOrNull() ?: 20).coerceIn(0, 23)).apply(); Programme.armer(this) }
+    private fun sauveReglages() { sp.edit().putString("fuseau", etFuseau.text.toString()).putString("decal", etDecal.text.toString()).putBoolean("sans", cbSans.isChecked).putBoolean("sup", cbSup.isChecked).putBoolean("lieu", cbLieu.isChecked).putBoolean("ren", cbRen.isChecked).putBoolean("auto", cbAuto.isChecked).putBoolean("coord", cbCoord.isChecked).putBoolean("vois", cbVois.isChecked).putBoolean("eco", cbEco.isChecked).putBoolean("lisse", cbLisse.isChecked).putBoolean("tel", cbTel.isChecked).putBoolean("parapp", cbParApp.isChecked).putString("album", etAlbum.text.toString().trim()).putInt("prog_d", (etPd.text.toString().toIntOrNull() ?: 8).coerceIn(0, 23)).putInt("prog_f", (etPf.text.toString().toIntOrNull() ?: 20).coerceIn(0, 23)).apply(); Programme.armer(this) }
 
     private fun tick() {
         val on = TraceService.actif
@@ -299,6 +303,14 @@ class MainActivity : Activity() {
     private fun demarre() { startForegroundService(Intent(this, TraceService::class.java)); h.postDelayed({ tick() }, 800) }
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, r: IntArray) {
         if (rc == RC_LOC && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) demarre()
+        if (rc == RC_TEL) { if (Telephone.ok(this)) syncTel(true) else { cbTel.isChecked = false; sp.edit().putBoolean("tel", false).apply(); Toast.makeText(this, "Autorisations refusées : photos du téléphone non ajoutées.", Toast.LENGTH_LONG).show() } }
+    }
+
+    /** Ajoute au carnet les nouvelles photos de la caméra du téléphone (en arrière-plan). */
+    private fun syncTel(annonce: Boolean) {
+        if (!sp.getBoolean("tel", false) || !Telephone.ok(this)) return
+        Thread { val n = try { Telephone.synchroniser(this) } catch (_: Exception) { 0 }
+            if (n > 0 || annonce) runOnUiThread { Toast.makeText(this, "📱 $n photo(s) du téléphone ajoutée(s) au carnet", Toast.LENGTH_LONG).show() } }.start()
     }
 
     // ---- géolocalisation ----
