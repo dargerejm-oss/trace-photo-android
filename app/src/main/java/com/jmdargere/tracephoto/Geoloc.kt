@@ -1,9 +1,12 @@
 package com.jmdargere.tracephoto
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
+import java.io.File
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -13,45 +16,64 @@ class Wp(val nom: String, val lat: Double, val lon: Double, val t: Long, val des
 
 class Bilan {
     val wpts = ArrayList<Wp>()
-    var geo = 0; var deja = 0; var hors = 0; var xmp = 0; var xmpExiste = 0; var sansDate = 0; var erreurs = 0; var renomme = 0
     val lieux = java.util.TreeMap<String, Int>()
+    var importees = 0; var deja = 0; var avecPos = 0; var sansPos = 0; var sansDate = 0; var verifiees = 0; var erreurs = 0; var raw = 0
 }
 
-class Fichier(val parent: Uri, val docId: String, val nom: String)
+class Fichier(val parent: Uri, val docId: String, val nom: String, val taille: Long, val modif: Long)
 
-/** Cherche les photos du dossier choisi, lit l'heure de prise de vue et écrit la position issue de la trace. */
-class Geoloc(private val c: Context, private val racine: Uri, private val decalageUtcSec: Int, private val decalHorlogeSec: Int, private val remplacer: Boolean,
-             private val ecrireLieu: Boolean, private val renommer: Boolean, private val coordNom: Boolean, @Volatile var lieuxOk: Boolean) {
-    private class Groupe(val parent: Uri, val parentId: String, val base: String, var t: Long, var lieu: Lieu?, val lat: Double, val lon: Double)
-    private val groupes = LinkedHashMap<String, Groupe>()
+/** Entrée du journal d'import (pour la visionneuse). */
+class Entree(val uri: String, val nom: String, val lat: Double?, val lon: Double?, val lieu: String, val t: Long, val jpeg: Boolean)
+
+object Journal {
+    private fun f(c: Context) = File(c.filesDir, "importes.tsv")
+    fun cles(c: Context): HashSet<String> {
+        val s = HashSet<String>()
+        try { f(c).forEachLine { l -> val p = l.split('\t'); if (p.isNotEmpty()) s.add(p[0]) } } catch (_: Exception) {}
+        return s
+    }
+    fun ajouter(c: Context, cle: String, e: Entree) {
+        f(c).appendText(listOf(cle, e.uri, e.nom, e.lat?.toString() ?: "", e.lon?.toString() ?: "", e.lieu, e.t, if (e.jpeg) "1" else "0").joinToString("\t") + "\n")
+    }
+    fun lire(c: Context): List<Entree> {
+        val out = ArrayList<Entree>()
+        try { f(c).forEachLine { l -> val p = l.split('\t')
+            if (p.size >= 8) out.add(Entree(p[1], p[2], p[3].toDoubleOrNull(), p[4].toDoubleOrNull(), p[5], p[6].toLongOrNull() ?: 0, p[7] == "1")) } } catch (_: Exception) {}
+        return out
+    }
+}
+
+/** Copie les NOUVELLES photos de la carte vers le téléphone (album « Fuji X4 »), avec position + lieu. La carte n'est jamais modifiée. */
+class Geoloc(private val c: Context, private val racine: Uri, private val decalageUtcSec: Int, private val decalHorlogeSec: Int,
+             private val ecrireLieu: Boolean, private val renommer: Boolean, private val coordNom: Boolean, private val sansPosition: Boolean,
+             @Volatile var lieuxOk: Boolean) {
     @Volatile var annule = false
     private val cr = c.contentResolver
     private val fmt = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
+    private val fmtNom = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm")
     private val jpg = setOf("jpg", "jpeg")
     private val autres = setOf("raf", "dng", "nef", "arw", "cr2", "cr3", "orf", "rw2", "heic", "hif", "heif", "tif", "tiff")
-
     private fun ext(n: String) = n.substringAfterLast('.', "").lowercase(Locale.ROOT)
 
     fun lister(): List<Fichier> {
         val out = ArrayList<Fichier>()
-        val rootId = DocumentsContract.getTreeDocumentId(racine)
         fun marche(id: String) {
             if (annule) return
             val enf = DocumentsContract.buildChildDocumentsUriUsingTree(racine, id)
-            val cols = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val cols = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
             val dossiers = ArrayList<String>()
             try {
                 cr.query(enf, cols, null, null, null)?.use { q ->
                     while (q.moveToNext()) {
                         val did = q.getString(0); val nom = q.getString(1) ?: continue; val mime = q.getString(2) ?: ""
                         if (mime == DocumentsContract.Document.MIME_TYPE_DIR) { if (!nom.startsWith(".")) dossiers.add(did) }
-                        else { val e = ext(nom); if (e in jpg || e in autres) out.add(Fichier(DocumentsContract.buildDocumentUriUsingTree(racine, id), did, nom)) }
+                        else { val e = ext(nom); if (e in jpg || e in autres) out.add(Fichier(DocumentsContract.buildDocumentUriUsingTree(racine, id), did, nom, q.getLong(3), q.getLong(4))) }
                     }
                 }
             } catch (_: Exception) {}
             for (d in dossiers) marche(d)
         }
-        marche(rootId)
+        marche(DocumentsContract.getTreeDocumentId(racine))
         return out
     }
 
@@ -65,66 +87,84 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
     }
 
     fun traiter(fichiers: List<Fichier>, pts: List<Pt>, progres: (Int, Int) -> Unit): Bilan {
-        val b = Bilan()
+        val b = Bilan(); val faits = Journal.cles(c)
         for ((i, f) in fichiers.withIndex()) {
             if (annule) break
             progres(i + 1, fichiers.size)
-            try { un(f, pts, b) } catch (_: Exception) { b.erreurs++ }
+            val cle = "${f.nom}|${f.taille}|${f.modif}"
+            if (cle in faits) { b.deja++; continue }
+            try { un(f, cle, pts, b) } catch (_: Exception) { b.erreurs++ }
         }
-        if (renommer && !annule) renommerGroupes(b)
         return b
     }
 
-    private fun un(f: Fichier, pts: List<Pt>, b: Bilan) {
+    private fun un(f: Fichier, cle: String, pts: List<Pt>, b: Bilan) {
         val uri = DocumentsContract.buildDocumentUriUsingTree(racine, f.docId)
-        val e = ext(f.nom)
-        // lecture seule d'abord
-        var t: Long? = null; var aGps = false
-        cr.openFileDescriptor(uri, "r")!!.use { p ->
-            val ex = ExifInterface(p.fileDescriptor)
-            t = heure(ex); aGps = ex.latLong != null
+        val e = ext(f.nom); val base = f.nom.substringBeforeLast('.')
+        var t: Long? = null
+        try { cr.openFileDescriptor(uri, "r")!!.use { p -> t = heure(ExifInterface(p.fileDescriptor)) } } catch (_: Exception) {}
+        val pos = t?.let { Trace.position(pts, it) }
+        if (t == null) b.sansDate++
+        if (pos == null && !sansPosition) return
+        val lieu = if (pos != null && lieuxOk) Lieux.chercher(c, pos.lat, pos.lon) else null
+        if (pos != null) { b.avecPos++; if (lieu != null) b.lieux[lieu.texte()] = (b.lieux[lieu.texte()] ?: 0) + 1 } else b.sansPos++
+
+        var nouvelleBase = base
+        if (renommer && t != null) {
+            val local = LocalDateTime.ofEpochSecond(t!! / 1000 + decalHorlogeSec + decalageUtcSec, 0, ZoneOffset.UTC)
+            val coord = if (coordNom && pos != null) "_" + "%s%.4f_%s%.4f".format(Locale.US, if (pos.lat >= 0) "N" else "S", Math.abs(pos.lat), if (pos.lon >= 0) "E" else "W", Math.abs(pos.lon)) else ""
+            nouvelleBase = fmtNom.format(local) + (if (lieu != null) "_" + lieu.court() else "") + coord + "_" + base
         }
-        if (t == null) { b.sansDate++; return }
-        if (aGps && !remplacer && e in jpg) { b.deja++; return }
-        val pos = Trace.position(pts, t!!)
-        if (pos == null) { b.hors++; return }
-        val lieu = if (lieuxOk) Lieux.chercher(c, pos.lat, pos.lon) else null
-        if (lieu != null) b.lieux[lieu.texte()] = (b.lieux[lieu.texte()] ?: 0) + 1
-        if (lieu != null || coordNom) {
-            val base = f.nom.substringBeforeLast('.')
-            groupes.getOrPut(DocumentsContract.getDocumentId(f.parent) + "/" + base) { Groupe(f.parent, DocumentsContract.getDocumentId(f.parent), base, t!!, lieu, pos.lat, pos.lon) }
-        }
-        b.wpts.add(Wp(f.nom, pos.lat, pos.lon, t!!, lieu?.texte() ?: ""))
+        val desc = lieu?.texte() ?: ""
         if (e in jpg) {
-            cr.openFileDescriptor(uri, "rw")!!.use { p ->
-                val ex = ExifInterface(p.fileDescriptor)
+            val tmp = File(c.cacheDir, "imp.jpg")
+            cr.openInputStream(uri)!!.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
+            if (pos != null) {
+                val ex = ExifInterface(tmp.absolutePath)
                 ex.setLatLong(pos.lat, pos.lon)
                 if (pos.ele != null) {
                     ex.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${Math.round(Math.abs(pos.ele) * 100)}/100")
                     ex.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, if (pos.ele < 0) "1" else "0")
                 }
-                if (ecrireLieu && lieu != null && ex.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION).isNullOrBlank()) ex.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, lieu.texte())
+                if (ecrireLieu && desc.isNotEmpty() && ex.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION).isNullOrBlank()) ex.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, desc)
                 ex.saveAttributes()
             }
-            // contrôle : on relit
-            val ok = cr.openFileDescriptor(uri, "r")!!.use { p -> ExifInterface(p.fileDescriptor).latLong != null }
-            if (ok) b.geo++ else b.erreurs++
+            val v = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "$nouvelleBase.$e"); put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Fuji X4"); put(MediaStore.Images.Media.IS_PENDING, 1)
+                if (t != null) put(MediaStore.Images.Media.DATE_TAKEN, t!!)
+            }
+            val dest = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v) ?: run { b.erreurs++; return }
+            cr.openOutputStream(dest)!!.use { o -> tmp.inputStream().use { it.copyTo(o) } }
+            cr.update(dest, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+            tmp.delete()
+            if (pos != null) {
+                val ok = try { cr.openFileDescriptor(dest, "r")!!.use { p -> ExifInterface(p.fileDescriptor).latLong != null } } catch (_: Exception) { false }
+                if (ok) b.verifiees++ else b.erreurs++
+            }
+            Journal.ajouter(c, cle, Entree(dest.toString(), "$nouvelleBase.$e", pos?.lat, pos?.lon, desc, t ?: 0, true))
         } else {
-            val nomXmp = f.nom.substringBeforeLast('.') + ".xmp"
-            if (existe(f.parent, nomXmp)) { b.xmpExiste++; return }
-            val u = DocumentsContract.createDocument(cr, f.parent, "application/octet-stream", nomXmp) ?: run { b.erreurs++; return }
-            cr.openOutputStream(u, "w")!!.use { it.write(xmp(pos, lieu).toByteArray(Charsets.UTF_8)) }
-            b.xmp++; b.geo++
+            val files = MediaStore.Files.getContentUri("external")
+            val v = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "$nouvelleBase.$e"); put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/Fuji X4"); put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val dest = cr.insert(files, v) ?: run { b.erreurs++; return }
+            cr.openInputStream(uri)!!.use { i -> cr.openOutputStream(dest)!!.use { o -> i.copyTo(o) } }
+            cr.update(dest, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+            if (pos != null) {
+                val x = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "$nouvelleBase.xmp"); put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/Fuji X4")
+                }
+                val ux = cr.insert(files, x)
+                if (ux != null) { cr.openOutputStream(ux)!!.use { o -> o.write(xmp(pos, lieu).toByteArray(Charsets.UTF_8)) }; b.verifiees++ } else b.erreurs++
+            }
+            b.raw++
+            Journal.ajouter(c, cle, Entree(dest.toString(), "$nouvelleBase.$e", pos?.lat, pos?.lon, desc, t ?: 0, false))
         }
-    }
-
-    private fun existe(parent: Uri, nom: String): Boolean {
-        val pid = DocumentsContract.getDocumentId(parent)
-        val enf = DocumentsContract.buildChildDocumentsUriUsingTree(racine, pid)
-        cr.query(enf, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { q ->
-            while (q.moveToNext()) if (nom.equals(q.getString(0), true)) return true
-        }
-        return false
+        b.importees++
+        if (pos != null) b.wpts.add(Wp("$nouvelleBase.$e", pos.lat, pos.lon, t ?: 0, desc))
     }
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;")
@@ -142,32 +182,5 @@ class Geoloc(private val c: Context, private val racine: Uri, private val decala
             "<rdf:Description rdf:about=\"\" xmlns:exif=\"http://ns.adobe.com/exif/1.0/\" exif:GPSVersionID=\"2.3.0.0\" " +
             "exif:GPSLatitude=\"${dm(p.lat, 'N', 'S')}\" exif:GPSLongitude=\"${dm(p.lon, 'E', 'W')}\"$alt$lx/>" +
             "</rdf:RDF></x:xmpmeta>\n<?xpacket end=\"w\"?>"
-    }
-
-    private val dejaNomme = Regex("""^\d{4}-\d{2}-\d{2}_\d{4}_""")
-    private val fmtNom = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm")
-
-    private fun renommerGroupes(b: Bilan) {
-        for (g in groupes.values) {
-            if (annule) return
-            if (dejaNomme.containsMatchIn(g.base)) continue
-            val local = LocalDateTime.ofEpochSecond(g.t / 1000 + decalHorlogeSec + decalageUtcSec, 0, ZoneOffset.UTC)
-            val coord = if (coordNom) "_" + "%s%.4f_%s%.4f".format(Locale.US, if (g.lat >= 0) "N" else "S", Math.abs(g.lat), if (g.lon >= 0) "E" else "W", Math.abs(g.lon)) else ""
-            val nouveau = fmtNom.format(local) + (if (g.lieu != null) "_" + g.lieu!!.court() else "") + coord + "_" + g.base
-            val enf = DocumentsContract.buildChildDocumentsUriUsingTree(racine, g.parentId)
-            val aRenommer = ArrayList<Pair<String, String>>()
-            try {
-                cr.query(enf, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { q ->
-                    while (q.moveToNext()) { val n = q.getString(1) ?: continue
-                        if (n.substringBeforeLast('.').equals(g.base, true) && n.contains('.')) aRenommer.add(q.getString(0) to n) }
-                }
-            } catch (_: Exception) {}
-            for ((id, n) in aRenommer) {
-                try {
-                    val r = DocumentsContract.renameDocument(cr, DocumentsContract.buildDocumentUriUsingTree(racine, id), nouveau + "." + n.substringAfterLast('.'))
-                    if (r != null) b.renomme++ else b.erreurs++
-                } catch (_: Exception) { b.erreurs++ }
-            }
-        }
     }
 }
