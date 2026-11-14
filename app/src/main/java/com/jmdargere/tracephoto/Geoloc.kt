@@ -43,6 +43,10 @@ object Journal {
             if (p.size >= 8) out.add(Entree(p[1], p[2], p[3].toDoubleOrNull(), p[4].toDoubleOrNull(), p[5], p[6].toLongOrNull() ?: 0, p[7] == "1")) } } catch (_: Exception) {}
         return out
     }
+    /** Entrées dont la photo existe encore dans la galerie (les photos supprimées par l'utilisateur n'apparaissent plus). Le fichier du journal reste intact, donc rien n'est réimporté. */
+    fun vivantes(c: Context): List<Entree> = lire(c).filter { e ->
+        try { c.contentResolver.query(Uri.parse(e.uri), arrayOf("_id"), null, null, null)?.use { it.count > 0 } ?: false } catch (_: Exception) { false }
+    }
 }
 
 /** Copie les NOUVELLES photos de la carte vers le téléphone (album « Fuji X4 »), avec position + lieu. La carte n'est jamais modifiée. */

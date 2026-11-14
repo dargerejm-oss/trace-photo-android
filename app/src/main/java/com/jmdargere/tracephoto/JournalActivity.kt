@@ -35,7 +35,7 @@ class JournalActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         val df = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val ent = Journal.lire(this).filter { it.jpeg && it.t > 0 }
+        val ent = Journal.vivantes(this).filter { it.jpeg && it.t > 0 }
         val pts = Trace.lireTout(this)
         val parJ = ent.groupBy { df.format(Date(it.t)) }.toSortedMap(compareByDescending { it })
         val ptsJ = pts.groupBy { df.format(Date(it.t)) }
@@ -82,7 +82,7 @@ class JournalActivity : Activity() {
     private fun gpxVoyage() {
         Thread {
             val wp = ArrayList<Wp>()
-            for (e in Journal.lire(this)) if (e.jpeg && e.lat != null && e.lon != null) wp.add(Wp(e.nom, e.lat, e.lon, e.t, e.lieu))
+            for (e in Journal.vivantes(this)) if (e.jpeg && e.lat != null && e.lon != null) wp.add(Wp(e.nom, e.lat, e.lon, e.t, e.lieu))
             val u = Trace.exporterVisu(this, Trace.lireTout(this), wp)
             runOnUiThread {
                 if (u == null) { Toast.makeText(this, T.t("pas_carte"), Toast.LENGTH_LONG).show(); return@runOnUiThread }

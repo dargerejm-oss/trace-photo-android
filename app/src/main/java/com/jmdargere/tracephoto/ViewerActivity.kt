@@ -29,7 +29,7 @@ class ViewerActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        toutes = Journal.lire(this).filter { it.jpeg }.reversed(); liste = toutes
+        toutes = Journal.vivantes(this).filter { it.jpeg }.reversed(); liste = toutes
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#ECEFF1")) }
         val n = liste.size; val ok = liste.count { it.lat != null }
         root.addView(TextView(this).apply {
